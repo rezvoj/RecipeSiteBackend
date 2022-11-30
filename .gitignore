@@ -1,0 +1,6 @@
+**/.vscode/
+**/__pycache__/
+.pyenv/
+database/
+media/
+test_media/

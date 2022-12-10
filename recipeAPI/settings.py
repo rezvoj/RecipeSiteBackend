@@ -32,6 +32,7 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
+    'EXCEPTION_HANDLER': 'recipeAPIapp.utils.exception.handler',
 }
 
 AUTH_PASSWORD_VALIDATORS = [

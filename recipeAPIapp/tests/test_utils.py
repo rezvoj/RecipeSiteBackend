@@ -11,6 +11,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.test import APITestCase, APIRequestFactory
 import recipeAPIapp.utils.exception as Exceptions
+import recipeAPIapp.utils.permission as Permissions
 import recipeAPIapp.utils.security as Security
 from recipeAPIapp.models.timestamp import utc_now
 from recipeAPIapp.models.user import User
@@ -87,6 +88,104 @@ class TestExceptionHandler(APITestCase):
         response: Response = self.client.get('/test/exceptions/internal-server-error')
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(response.data, {})
+
+
+@override_settings(APP_ADMIN_CODE='TEST_ADMIN_CODE')
+class TestPermissions(APITestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.admin_code = 'correct_admin_code'
+        self.unverified_user = User.objects.create(
+            email='unverified@example.com', name='Unverified User',
+            vcode='1234', moderator=False
+        )
+        self.user = User.objects.create(
+            email='verified@example.com', name='Verified User',
+            vcode=None, moderator=False
+        )
+        self.moderator_user = User.objects.create(
+            email='moderator@example.com', name='Moderator User',
+            moderator=True
+        )
+
+    def test_user_function(self):
+        request = self.factory.get('')
+        request.user = self.user
+        result = Permissions.user(request)
+        self.assertEqual(result, self.user)
+        request.user = None
+        with self.assertRaises(PermissionDenied):
+            Permissions.user(request)
+
+    def test_verified_function(self):
+        request = self.factory.get('')
+        request.user = self.user
+        result = Permissions.verified(request)
+        self.assertEqual(result, self.user)
+        request.user = self.unverified_user
+        with self.assertRaises(PermissionDenied):
+            Permissions.verified(request)
+
+    def test_is_admin_function(self):
+        request = self.factory.get('')
+        result = Permissions.is_admin(request)
+        self.assertFalse(result)
+        request.META['HTTP_ADMINCODE'] = 'wrong_code'
+        result = Permissions.is_admin(request)
+        self.assertFalse(result)
+        request.META['HTTP_ADMINCODE'] = 'TEST_ADMIN_CODE'
+        result = Permissions.is_admin(request)
+        self.assertTrue(result)
+
+    def test_admin_function(self):
+        request = self.factory.get('')
+        request.user = User()
+        request.META['HTTP_ADMINCODE'] = 'TEST_ADMIN_CODE'
+        result = Permissions.admin(request)
+        self.assertEqual(result, request.user)
+        request.META['HTTP_ADMINCODE'] = 'wrong_code'
+        with self.assertRaises(PermissionDenied):
+            Permissions.admin(request)
+        request.META.pop('HTTP_ADMINCODE')
+        with self.assertRaises(PermissionDenied):
+            Permissions.admin(request)
+
+    def test_is_admin_or_moderator_function(self):
+        request = self.factory.get('')
+        request.user = self.moderator_user
+        result = Permissions.is_admin_or_moderator(request)
+        self.assertTrue(result)
+        request = self.factory.get('')
+        request.user = self.user
+        result = Permissions.is_admin_or_moderator(request)
+        self.assertFalse(result)
+        request.META['HTTP_ADMINCODE'] = 'TEST_ADMIN_CODE'
+        result = Permissions.is_admin_or_moderator(request)
+        self.assertTrue(result)
+
+    def test_admin_or_moderator_function(self):
+        request = self.factory.get('')
+        request.user = self.user
+        with self.assertRaises(PermissionDenied):
+            Permissions.admin_or_moderator(request)
+        request.META['HTTP_ADMINCODE'] = 'TEST_ADMIN_CODE'
+        result = Permissions.admin_or_moderator(request)
+        self.assertEqual(result, self.user)
+        request.user = self.moderator_user
+        result = Permissions.admin_or_moderator(request)
+        self.assertEqual(result, self.moderator_user)
+
+    def test_user_id_function(self):
+        request = self.factory.get('')
+        request.user = None
+        result = Permissions.user_id(request)
+        self.assertEqual(result, 'anon')
+        request.user = self.user
+        result = Permissions.user_id(request)
+        self.assertEqual(result, self.user.pk)
+        request.META['HTTP_ADMINCODE'] = 'TEST_ADMIN_CODE'
+        result = Permissions.user_id(request)
+        self.assertEqual(result, 'admin')
 
 
 class TestSecurity(APITestCase):

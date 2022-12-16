@@ -1,20 +1,25 @@
-import logging, jwt
+import logging, jwt, io
 from datetime import timedelta
+from PIL import Image
 from django.urls import path
 from django.http import Http404
 from django.test import override_settings
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
-from rest_framework import status
+from rest_framework import status, serializers
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.test import APITestCase, APIRequestFactory
 import recipeAPIapp.utils.exception as Exceptions
 import recipeAPIapp.utils.permission as Permissions
 import recipeAPIapp.utils.security as Security
+import recipeAPIapp.utils.validation as Validation
+from recipeAPIapp.utils.exception import VerificationException
 from recipeAPIapp.models.timestamp import utc_now
 from recipeAPIapp.models.user import User
+from recipeAPIapp.models.recipe import Recipe
 
 
 
@@ -248,3 +253,100 @@ class TestSecurity(APITestCase):
         request = self.factory.get('', HTTP_AUTHORIZATION=f'Bearer {token}')
         user, _ = Security.Authentication().authenticate(request)
         self.assertIsNone(user)
+
+
+class TestValidation(APITestCase):
+    class DummySerializer(serializers.Serializer):
+        name = serializers.CharField(max_length=100)
+        age = serializers.IntegerField()
+        def validate(self, data):
+            if data['name'] == 'Invalid Name':
+                raise serializers.ValidationError("Invalid Name")
+            return data
+
+    def setUp(self):
+        self.user = User.objects.create(email='test@abc.com', name='Test User')
+
+    def test_photo_with_valid_image(self):
+        file = io.BytesIO()
+        image = Image.new('RGB', (100, 100), color='black')
+        image.save(file, format="JPEG")
+        file.seek(0)
+        photo = SimpleUploadedFile('test_image.jpg', file.read(), content_type='image/jpeg')
+        result = Validation.photo(photo)
+        self.assertEqual(result, photo)
+
+    def test_photo_with_invalid_suffix(self):
+        invalid_photo = SimpleUploadedFile(
+            'invalid_image.txt', 
+            b'file_content', 
+            content_type='text/plain'
+        )
+        with self.assertRaises(serializers.ValidationError):
+            Validation.photo(invalid_photo)
+
+    def test_photo_with_valid_suffix_but_invalid_data(self):
+        invalid_photo = SimpleUploadedFile(
+            'invalid_image.png', 
+            b'not_really_an_image', 
+            content_type='image/png'
+        )
+        with self.assertRaises(serializers.ValidationError):
+            Validation.photo(invalid_photo)
+
+    def test_order_by_with_valid_data(self):
+        data = ['-name', 'calories']
+        options = ['name', 'title', 'prep_time', 'calories']
+        result = Validation.order_by(data, options)
+        self.assertEqual(result, data)
+
+    def test_order_by_with_invalid_data(self):
+        data = ['-name', 'invalid']
+        options = ['name', 'title', 'prep_time', 'calories']
+        with self.assertRaises(serializers.ValidationError):
+            Validation.order_by(data, options)
+
+    def test_serializer_with_valid_data(self):
+        data = {'name': 'Test Name', 'age': 25}
+        ser = self.DummySerializer(data=data)
+        result = Validation.serializer(ser)
+        self.assertEqual(result, ser)
+
+    def test_serializer_with_invalid_field_data(self):
+        data = {'name': '', 'age': 'invalid'}
+        ser = self.DummySerializer(data=data)
+        with self.assertRaises(VerificationException) as context:
+            Validation.serializer(ser)
+        expected_errors = {
+            'name': ['This field may not be blank.'],
+            'age': ['A valid integer is required.']
+        }
+        self.assertEqual(context.exception.args[0], expected_errors)
+
+    def test_serializer_with_non_field_error(self):
+        data = {'name': 'Invalid Name', 'age': 25}
+        ser = self.DummySerializer(data=data)
+        with self.assertRaises(VerificationException) as context:
+            Validation.serializer(ser)
+        expected_errors = {'non_field_errors': ['Invalid Name']}
+        self.assertEqual(context.exception.args[0], expected_errors)
+
+    def test_is_limited_within_limit(self):
+        for idx in range(5):
+            Recipe.objects.create(
+                user=self.user,
+                name=f'Test Recipe {idx}', title='Test Recipe Title',
+                prep_time=10, calories=100, submit_status=0, deny_message='',
+            )
+        result = Validation.is_limited(self.user, Recipe, limit=(10, 24))
+        self.assertFalse(result)
+
+    def test_is_limited_exceeds_limit(self):
+        for idx in range(15):
+            Recipe.objects.create(
+                user=self.user,
+                name=f'Test Recipe {idx}', title='Test Recipe Title',
+                prep_time=10, calories=100, submit_status=0, deny_message='',
+            )
+        result = Validation.is_limited(self.user, Recipe, limit=(10, 24))
+        self.assertTrue(result)

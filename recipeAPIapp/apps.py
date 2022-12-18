@@ -6,3 +6,4 @@ class Config(AppConfig):
 
     class IssueFor:
         jwt_token = 7
+        email_code = 3

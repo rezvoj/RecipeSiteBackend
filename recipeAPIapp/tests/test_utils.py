@@ -1,4 +1,6 @@
 import logging, jwt, io
+import django.core.mail as mail
+import django.utils.crypto as django_crypto
 from datetime import timedelta
 from PIL import Image
 from django.urls import path
@@ -16,9 +18,11 @@ import recipeAPIapp.utils.exception as Exceptions
 import recipeAPIapp.utils.permission as Permissions
 import recipeAPIapp.utils.security as Security
 import recipeAPIapp.utils.validation as Validation
+import recipeAPIapp.utils.verification as Verification
+from recipeAPIapp.apps import Config
 from recipeAPIapp.utils.exception import VerificationException
 from recipeAPIapp.models.timestamp import utc_now
-from recipeAPIapp.models.user import User
+from recipeAPIapp.models.user import User, EmailRecord
 from recipeAPIapp.models.recipe import Recipe
 
 
@@ -350,3 +354,62 @@ class TestValidation(APITestCase):
             )
         result = Validation.is_limited(self.user, Recipe, limit=(10, 24))
         self.assertTrue(result)
+
+
+@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+class TestVerification(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create(
+            email='test@example.com', name='Test User',
+            vcode=None, vcode_expiry=None,
+            pcode=None, pcode_expiry=None
+        )
+
+    def test_verify_send(self):
+        Verification.Email.send(self.user)
+        Verification.PasswordReset.send(self.user)
+        self.user.refresh_from_db()
+        self.assertIsNotNone(self.user.vcode)
+        self.assertIsNotNone(self.user.vcode_expiry)
+        self.assertGreater(self.user.vcode_expiry, utc_now())
+        self.assertIsNotNone(self.user.pcode)
+        self.assertIsNotNone(self.user.pcode_expiry)
+        self.assertGreater(self.user.pcode_expiry, utc_now())
+        email_record_count = EmailRecord.objects.filter(user=self.user).count()
+        self.assertEqual(email_record_count, 2)
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertEqual(mail.outbox[0].subject, Verification.VerificationStrings.title)
+        expected_message = Verification.VerificationStrings.message.format(self.user.vcode)
+        self.assertEqual(mail.outbox[0].body, expected_message)
+        self.assertEqual(mail.outbox[0].to, [self.user.email])
+        expected_message = Verification.ResetStrings.message.format(self.user.pk, self.user.pcode)
+        self.assertEqual(mail.outbox[1].subject, Verification.ResetStrings.title)
+        self.assertEqual(mail.outbox[1].body, expected_message)
+        self.assertEqual(mail.outbox[1].to, [self.user.email])
+
+    def test_verify_valid_code(self):
+        self.user.vcode = django_crypto.get_random_string(length=25)
+        self.user.pcode = django_crypto.get_random_string(length=25)
+        self.user.vcode_expiry = utc_now() + timedelta(hours=Config.IssueFor.email_code)
+        self.user.pcode_expiry = utc_now() + timedelta(hours=Config.IssueFor.email_code)
+        self.user.save()
+        self.assertTrue(Verification.Email.verify(self.user, self.user.vcode))
+        self.assertTrue(Verification.PasswordReset.verify(self.user, self.user.pcode))
+
+    def test_verify_invalid_code(self):
+        self.user.vcode = django_crypto.get_random_string(length=25)
+        self.user.pcode = django_crypto.get_random_string(length=25)
+        self.user.vcode_expiry = utc_now() + timedelta(hours=Config.IssueFor.email_code)
+        self.user.pcode_expiry = utc_now() + timedelta(hours=Config.IssueFor.email_code)
+        self.user.save()
+        self.assertFalse(Verification.Email.verify(self.user, 'invalid code'))
+        self.assertFalse(Verification.PasswordReset.verify(self.user, 'invalid code'))
+
+    def test_verify_expired_code(self):
+        self.user.vcode = django_crypto.get_random_string(length=25)
+        self.user.pcode = django_crypto.get_random_string(length=25)
+        self.user.vcode_expiry = utc_now() - timedelta(hours=1)
+        self.user.pcode_expiry = utc_now() - timedelta(hours=1)
+        self.user.save()
+        self.assertFalse(Verification.Email.verify(self.user, self.user.vcode))
+        self.assertFalse(Verification.Email.verify(self.user, self.user.pcode))

@@ -26,3 +26,14 @@ class TokenView(APIView):
         user.refresh_from_db()
         token = security.generate_token(user)
         return Response({'token': token}, status=status.HTTP_200_OK)
+
+
+class LoginView(APIView):
+    @transaction.atomic
+    def post(self, request: Request):
+        serializer = serializers.LoginSerializer(data=request.data)
+        serializer = validation.serializer(serializer)
+        user = User.objects.get(email=serializer.validated_data['email'])
+        token = security.generate_token(user)
+        log.info(f"User logged in - user {user.pk}")
+        return Response({'token': token}, status=status.HTTP_200_OK)

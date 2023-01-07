@@ -37,3 +37,15 @@ class LoginView(APIView):
         token = security.generate_token(user)
         log.info(f"User logged in - user {user.pk}")
         return Response({'token': token}, status=status.HTTP_200_OK)
+
+
+class UpdateView(APIView):
+    @transaction.atomic
+    def put(self, request: Request):
+        user: User = permission.user(request)
+        user.refresh_from_db()
+        serializer = serializers.UpdateSerializer(instance=user, data=request.data, partial=True)
+        validation.serializer(serializer).save()
+        token = security.generate_token(user)
+        log.info(f"User auth updated - user {user.pk}")
+        return Response({'token': token}, status=status.HTTP_200_OK)

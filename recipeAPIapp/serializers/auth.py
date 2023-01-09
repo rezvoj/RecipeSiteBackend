@@ -54,3 +54,28 @@ class UpdateSerializer(serializers.ModelSerializer):
         if 'email' in validated_data:
             verification.Email.send(instance)
         return instance
+
+
+class SendVerificationSerializer(serializers.Serializer):
+    def __init__(self, *args, user: User, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+
+    def validate(self, data):
+        if self.user.vcode is None:
+            raise serializers.ValidationError("email already verified.")
+        return data
+
+
+class CompleteVerificationSerializer(serializers.Serializer):
+    def __init__(self, *args, user: User, code: str, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+        self.code = code
+
+    def validate(self, data):
+        if self.user.vcode is None:
+            raise serializers.ValidationError("email already verified.")
+        if not verification.Email.verify(self.user, self.code):
+            raise serializers.ValidationError("invalid email verification code.")
+        return data

@@ -49,3 +49,30 @@ class UpdateView(APIView):
         token = security.generate_token(user)
         log.info(f"User auth updated - user {user.pk}")
         return Response({'token': token}, status=status.HTTP_200_OK)
+
+
+class VerificationView(APIView):
+    @transaction.atomic
+    def post(self, request: Request):
+        user: User = permission.user(request)
+        user.refresh_from_db()
+        limit = Config.ContentLimits.email_code
+        dtm_offset = utc_now() - timedelta(hours=limit[1])
+        EmailRecord.objects.filter(created_at__lte=dtm_offset).delete()
+        if validation.is_limited(user, EmailRecord, limit):
+            raise ContentLimitException({'limit': limit[0], 'hours': limit[1]})
+        validation.serializer(serializers.SendVerificationSerializer(user=user, data={}))
+        verification.Email.send(user)
+        log.info(f"Verification email sent - user {user.pk}")
+        return Response({}, status=status.HTTP_200_OK)
+
+    @transaction.atomic
+    def put(self, request: Request, code: str):
+        user: User = permission.user(request)
+        user.refresh_from_db()
+        serializer = serializers.CompleteVerificationSerializer(user=user, code=code, data={})
+        validation.serializer(serializer)
+        user.vcode = user.vcode_expiry = None
+        user.save()
+        log.info(f"Email verified - user {user.pk}")
+        return Response({}, status=status.HTTP_200_OK)

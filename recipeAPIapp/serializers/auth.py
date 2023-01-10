@@ -79,3 +79,42 @@ class CompleteVerificationSerializer(serializers.Serializer):
         if not verification.Email.verify(self.user, self.code):
             raise serializers.ValidationError("invalid email verification code.")
         return data
+
+
+class SendPasswordResetSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate(self, data):
+        data = super().validate(data)
+        data['user'] = User.objects.filter(email=data['email'], banned=False).first()
+        return data
+
+
+class CheckPasswordResetSerializer(serializers.Serializer):
+    def __init__(self, *args, user_id: int, code: str, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user_id = user_id
+        self.code = code
+
+    def validate_user_and_code(self, data):
+        try:
+            data['user'] = User.objects.get(pk=self.user_id, banned=False)
+        except User.DoesNotExist:
+            raise serializers.ValidationError("invalid password reset code.")
+        if not verification.PasswordReset.verify(data['user'], self.code):
+            raise serializers.ValidationError("invalid password reset code.")
+    
+    def validate(self, data):
+        data = super().validate(data)
+        self.validate_user_and_code(data)
+        return data
+
+
+class CompletePasswordResetSerializer(CheckPasswordResetSerializer):
+    password = serializers.CharField()
+
+    def validate(self, data):
+        data = super().validate(data)
+        self.validate_user_and_code(data)
+        password_validation.validate_password(data['password'])
+        return data

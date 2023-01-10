@@ -76,3 +76,38 @@ class VerificationView(APIView):
         user.save()
         log.info(f"Email verified - user {user.pk}")
         return Response({}, status=status.HTTP_200_OK)
+
+
+class PasswordResetView(APIView):
+    @transaction.atomic
+    def post(self, request: Request):
+        serializer = serializers.SendPasswordResetSerializer(data=request.data)
+        serializer = validation.serializer(serializer)
+        user: User = serializer.validated_data['user']
+        if isinstance(user, User):
+            limit = Config.ContentLimits.email_code
+            dtm_offset = utc_now() - timedelta(hours=limit[1])
+            EmailRecord.objects.filter(created_at__lte=dtm_offset).delete()
+            if validation.is_limited(user, EmailRecord, Config.ContentLimits.email_code):
+                raise ContentLimitException({'limit': limit[0], 'hours': limit[1]})
+            verification.PasswordReset.send(user)
+            log.info(f"Password reset email sent - user {user.pk}")
+        return Response({}, status=status.HTTP_200_OK)
+
+    def get(self, _: Request, user_id: int, code: str):
+        serializer = serializers.CheckPasswordResetSerializer(user_id=user_id, code=code, data={})
+        validation.serializer(serializer)
+        return Response({}, status=status.HTTP_200_OK)
+
+    @transaction.atomic
+    def put(self, request: Request, user_id: int, code: str):
+        serializer = serializers.CompletePasswordResetSerializer(data=request.data, user_id=user_id, code=code)
+        serializer = validation.serializer(serializer)
+        user: User = serializer.validated_data['user']
+        user.pcode = user.pcode_expiry = user.vcode = user.vcode_expiry = None
+        security.set_password(user, serializer.validated_data['password'])
+        user.details_iteration += 1
+        user.save()
+        token = security.generate_token(user)
+        log.info(f"Password reset - user {user_id}")
+        return Response({'token': token}, status=status.HTTP_200_OK)

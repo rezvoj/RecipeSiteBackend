@@ -10,5 +10,7 @@ urlpatterns = [
     path('auth/update', AuthViews.UpdateView.as_view()),
     path('auth/email-verification', AuthViews.VerificationView.as_view()),
     path('auth/email-verification/<str:code>', AuthViews.VerificationView.as_view()),
-    
+    path('auth/password-reset', AuthViews.PasswordResetView.as_view()),
+    path('auth/password-reset/<int:user_id>/<str:code>', AuthViews.PasswordResetView.as_view()),
+
 ]

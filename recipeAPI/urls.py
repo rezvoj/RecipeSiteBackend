@@ -1,6 +1,7 @@
 from django.urls import path
 from django.conf import settings
 import recipeAPIapp.views.auth as AuthViews
+import recipeAPIapp.views.media as MediaViews
 
 
 urlpatterns = [
@@ -14,3 +15,6 @@ urlpatterns = [
     path('auth/password-reset/<int:user_id>/<str:code>', AuthViews.PasswordResetView.as_view()),
 
 ]
+
+if settings.DEFAULT_FILE_STORAGE == 'django.core.files.storage.FileSystemStorage':
+    urlpatterns += [path('media/<path:path>', MediaViews.ServeStaticView.as_view())]

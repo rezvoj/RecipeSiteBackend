@@ -1,10 +1,13 @@
 from django.urls import path
 from django.conf import settings
+import recipeAPIapp.views.user as UserViews
 import recipeAPIapp.views.auth as AuthViews
 import recipeAPIapp.views.media as MediaViews
 
 
 urlpatterns = [
+
+    path('user', UserViews.UserView.as_view()),
 
     path('auth/token', AuthViews.TokenView.as_view()),
     path('auth/login', AuthViews.LoginView.as_view()),

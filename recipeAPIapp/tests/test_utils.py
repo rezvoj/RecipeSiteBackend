@@ -19,6 +19,7 @@ import recipeAPIapp.utils.permission as Permissions
 import recipeAPIapp.utils.security as Security
 import recipeAPIapp.utils.validation as Validation
 import recipeAPIapp.utils.verification as Verification
+import recipeAPIapp.tests.media_utils as media_utils
 from recipeAPIapp.apps import Config
 from recipeAPIapp.utils.exception import VerificationException
 from recipeAPIapp.models.timestamp import utc_now
@@ -413,3 +414,59 @@ class TestVerification(APITestCase):
         self.user.save()
         self.assertFalse(Verification.Email.verify(self.user, self.user.vcode))
         self.assertFalse(Verification.Email.verify(self.user, self.user.pcode))
+
+
+@override_settings(DEFAULT_FILE_STORAGE=media_utils.TEST_DEFAULT_FILE_STORAGE)
+@override_settings(MEDIA_ROOT=media_utils.TEST_MEDIA_ROOT)
+class TestMedia(APITestCase):
+    def tearDown(self):
+        media_utils.delete_test_media()
+
+    def test_upload_and_update_photo(self):
+        initial_photo = media_utils.generate_test_image(color=(0, 0, 0))
+        response: Response = self.client.post(
+            '/user', data={
+                "photo": initial_photo,
+                "email": "newuser@example.com",
+                "name": "New User",
+                "password": "newuse$rpassword"
+            }, format='multipart'
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(email="newuser@example.com")
+        initial_photo_path = user.photo.path
+        with open(initial_photo_path, 'rb') as initial_file:
+            initial_photo.seek(0)
+            self.assertEqual(initial_file.read(), initial_photo.read())
+        updated_photo = media_utils.generate_test_image(color=(255, 0, 0))
+        headers = {'HTTP_AUTHORIZATION': f"Bearer {response.data['token']}"}
+        response: Response = self.client.put(
+            '/user', data={"photo": updated_photo}, 
+            format='multipart', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        user.refresh_from_db()
+        updated_photo_path = user.photo.path
+        with open(updated_photo_path, 'rb') as updated_file:
+            updated_photo.seek(0)
+            self.assertEqual(updated_file.read(), updated_photo.read())
+
+    def test_access_uploaded_photo(self):
+        photo = media_utils.generate_test_image(color=(0, 0, 0))
+        user = User(email="newuser@example.com", name="New User")
+        Security.set_password(user, "newuse$rpassword")
+        user.photo = photo
+        user.save()
+        user.refresh_from_db()
+        response: Response = self.client.get(f'/media{user.photo.url}')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        with open(user.photo.path, 'rb') as original_file:
+            self.assertEqual(response.content, original_file.read())
+
+    def test_path_traversal_attack(self):
+        response: Response = self.client.get('/media/../recipeAPIapp/settings.py')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_non_existent_file(self):
+        response: Response = self.client.get('/media/user/non_existent_file.jpg')
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

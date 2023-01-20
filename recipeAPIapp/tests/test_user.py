@@ -125,3 +125,43 @@ class TestModeratorChange(APITestCase):
             format='json', **headers
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class TestReport(APITestCase):
+    def setUp(self):
+        self.reporting_user = User.objects.create(email="reporting_user@example.com", name="Reporting User")
+        self.reporting_token = security.generate_token(self.reporting_user)
+        self.reported_user = User.objects.create(email="reported_user@example.com", name="Reported User")
+        self.banned_user = User.objects.create(email="banned_user@example.com", name="Banned User", banned=True)
+
+    def test_successful_report(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.reporting_token}'}
+        response: Response = self.client.post(f'/user/report/{self.reported_user.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(UserReport.objects.filter(user=self.reporting_user, reported=self.reported_user).exists())
+
+    def test_duplicate_report(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.reporting_token}'}
+        response: Response = self.client.post(f'/user/report/{self.reported_user.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response: Response = self.client.post(f'/user/report/{self.reported_user.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('detail', response.data)
+        expected_data = {'detail': {'non_field_errors': ['user already reported.']}}
+        self.assertEqual(response.data, expected_data)
+
+    def test_report_creation_limit_exceeded(self):
+        for i in range(Config.ContentLimits.report[0]):
+            new_reported_user = User.objects.create(email=f"reported_user_{i}@example.com", name=f"Reported User {i}")
+            UserReport.objects.create(user=self.reporting_user, reported=new_reported_user)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.reporting_token}'}
+        new_reported_user = User.objects.create(email="another_user@example.com", name="Another User")
+        response: Response = self.client.post(f'/user/report/{new_reported_user.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        expected_data = {'detail': {'limit': 15, 'hours': 24}}
+        self.assertEqual(response.data, expected_data)
+
+    def test_report_banned_user(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.reporting_token}'}
+        response: Response = self.client.post(f'/user/report/{self.banned_user.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

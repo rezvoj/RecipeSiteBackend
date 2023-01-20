@@ -40,3 +40,25 @@ class UserUpdateSerializer(serializers.ModelSerializer):
 
     def validate_photo(self, value):
         return validation.photo(value)
+
+
+class ReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserReport
+        fields = ()
+
+    def __init__(self, *args, user: User, reported: User, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+        self.reported = reported
+    
+    def validate(self, data):
+        data = super().validate(data)
+        if UserReport.objects.filter(user=self.user, reported=self.reported).exists():
+            raise serializers.ValidationError("user already reported.")
+        return data
+
+    def create(self, validated_data):
+        validated_data['user'] = self.user
+        validated_data['reported'] = self.reported
+        return super().create(validated_data)

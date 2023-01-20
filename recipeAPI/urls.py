@@ -8,6 +8,7 @@ import recipeAPIapp.views.media as MediaViews
 urlpatterns = [
 
     path('user', UserViews.UserView.as_view()),
+    path('user/change-moderator/<int:user_id>', UserViews.ChangeModeratorView.as_view()),
 
     path('auth/token', AuthViews.TokenView.as_view()),
     path('auth/login', AuthViews.LoginView.as_view()),

@@ -81,3 +81,47 @@ class TestUserCUD(APITestCase):
         response: Response = self.client.delete('/user', format='json')
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertTrue(User.objects.filter(email="test@example.com").exists())
+
+
+@override_settings(APP_ADMIN_CODE='TEST_ADMIN_CODE')
+class TestModeratorChange(APITestCase):
+    def setUp(self):
+        self.regular_user = User(email="user@example.com", name="Regular User")
+        security.set_password(self.regular_user, "userpassword")
+        self.regular_user.save()
+        self.banned_user = User(email="banned@example.com", name="Banned User", banned=True)
+        security.set_password(self.banned_user, "bannedpassword")
+        self.banned_user.save()
+
+    def test_change_moderator_status(self):
+        headers = {'HTTP_ADMINCODE': 'TEST_ADMIN_CODE'}
+        response: Response = self.client.put(
+            f'/user/change-moderator/{self.regular_user.pk}', 
+            format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.regular_user.refresh_from_db()
+        self.assertTrue(self.regular_user.moderator)
+        response: Response = self.client.put(
+            f'/user/change-moderator/{self.regular_user.pk}', 
+            format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.regular_user.refresh_from_db()
+        self.assertFalse(self.regular_user.moderator)
+
+    def test_change_moderator_status_non_admin(self):
+        headers = {'HTTP_ADMINCODE': 'wrong_code'}
+        response: Response = self.client.put(
+            f'/user/change-moderator/{self.regular_user.pk}', 
+            format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_change_moderator_status_banned_user(self):
+        headers = {'HTTP_ADMINCODE': 'TEST_ADMIN_CODE'}
+        response: Response = self.client.put(
+            f'/user/change-moderator/{self.banned_user.pk}', 
+            format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

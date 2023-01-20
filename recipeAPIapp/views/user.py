@@ -44,3 +44,15 @@ class UserView(APIView):
         user.delete()
         log.info(f"User deleted - user {user_id}")
         return Response({}, status=status.HTTP_204_NO_CONTENT)
+
+
+class ChangeModeratorView(APIView):
+    @transaction.atomic
+    def put(self, request: Request, user_id: int):
+        permission.admin(request)
+        user: User = get(User, pk=user_id, banned=False)
+        user.moderator = not user.moderator
+        user.save()
+        action = "named" if user.moderator else "revoked"
+        log.info(f"User {action} moderator - user {user.pk}")
+        return Response({}, status=status.HTTP_200_OK)

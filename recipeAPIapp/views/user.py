@@ -69,3 +69,36 @@ class ReportView(APIView):
         serializer = serializers.ReportSerializer(user=user, reported=reported, data={})
         validation.serializer(serializer).save()
         return Response({}, status=status.HTTP_201_CREATED)
+
+
+class UserBanView(APIView):
+    @transaction.atomic
+    def post(self, request: Request, user_id: int):
+        permission.admin_or_moderator(request)
+        filter_data = {'pk': user_id, 'banned': False} 
+        if not permission.is_admin(request):
+            filter_data |= {'moderator': False}
+        reported: User = get(User, **filter_data)
+        reported_id = reported.pk
+        reported.delete()
+        reported.banned = True
+        reported.moderator = False
+        reported.pk = reported.photo = None
+        reported.save()
+        moderator_id = permission.user_id(request)
+        log.info(f"User banned - moderator {moderator_id}, banned {reported_id}")
+        return Response({}, status=status.HTTP_200_OK)
+
+
+class DismissReportsView(APIView):
+    @transaction.atomic
+    def delete(self, request: Request, user_id: int):
+        permission.admin_or_moderator(request)        
+        filter_data = {'pk': user_id, 'banned': False} 
+        if not permission.is_admin(request):
+            filter_data |= {'moderator': False}
+        reported: User = get(User, **filter_data)
+        UserReport.objects.filter(reported=reported).delete()
+        moderator_id = permission.user_id(request)
+        log.info(f"User reports dismissed - moderator {moderator_id}, reported {reported.pk}")
+        return Response({}, status=status.HTTP_204_NO_CONTENT)

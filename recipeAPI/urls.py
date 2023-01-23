@@ -10,6 +10,8 @@ urlpatterns = [
     path('user', UserViews.UserView.as_view()),
     path('user/change-moderator/<int:user_id>', UserViews.ChangeModeratorView.as_view()),
     path('user/report/<int:user_id>', UserViews.ReportView.as_view()),
+    path('user/ban/<int:user_id>', UserViews.UserBanView.as_view()),
+    path('user/dismiss-reports/<int:user_id>', UserViews.DismissReportsView.as_view()),
 
     path('auth/token', AuthViews.TokenView.as_view()),
     path('auth/login', AuthViews.LoginView.as_view()),

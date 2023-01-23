@@ -165,3 +165,97 @@ class TestReport(APITestCase):
         headers = {'HTTP_AUTHORIZATION': f'Bearer {self.reporting_token}'}
         response: Response = self.client.post(f'/user/report/{self.banned_user.pk}', format='json', **headers)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+@override_settings(APP_ADMIN_CODE='TEST_ADMIN_CODE')
+class TestUserBan(APITestCase):
+    def setUp(self):
+        self.moderator_user = User.objects.create(email="moderator_user@example.com", name="Moderator User", moderator=True)
+        self.moderator_token = security.generate_token(self.moderator_user)
+        self.another_moderator = User.objects.create(email="moderator2@example.com", name="Another Moderator", moderator=True)
+        self.regular_user = User.objects.create(email="regular_user@example.com", name="Regular User")
+        self.recipe = Recipe.objects.create(user=self.regular_user, name="Recipe", title="Title", prep_time=10, calories=10)
+    
+    def test_successful_ban_by_admin(self):
+        headers = {'HTTP_ADMINCODE': 'TEST_ADMIN_CODE'}
+        response: Response = self.client.post(f'/user/ban/{self.regular_user.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(User.objects.filter(pk=self.regular_user.pk).exists())
+        banned_user = User.objects.filter(email="regular_user@example.com", banned=True).first()
+        self.assertIsNotNone(banned_user)
+        self.assertNotEqual(banned_user.pk, self.regular_user.pk)
+        self.assertFalse(Recipe.objects.filter(user=banned_user).exists())
+
+    def test_successful_ban_by_moderator(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.post(f'/user/ban/{self.regular_user.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(User.objects.filter(pk=self.regular_user.pk).exists())
+        banned_user = User.objects.filter(email="regular_user@example.com", banned=True).first()
+        self.assertIsNotNone(banned_user)
+        self.assertNotEqual(banned_user.pk, self.regular_user.pk)
+        self.assertFalse(Recipe.objects.filter(user=banned_user).exists())
+
+    def test_attempt_ban_moderator_by_another_moderator(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.post(f'/user/ban/{self.another_moderator.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_successful_ban_moderator_by_admin(self):
+        headers = {'HTTP_ADMINCODE': 'TEST_ADMIN_CODE'}
+        response: Response = self.client.post(f'/user/ban/{self.another_moderator.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(User.objects.filter(pk=self.another_moderator.pk).exists())
+        banned_user = User.objects.filter(email="moderator2@example.com", banned=True).first()
+        self.assertIsNotNone(banned_user)
+        self.assertNotEqual(banned_user.pk, self.another_moderator.pk)
+        self.assertFalse(banned_user.moderator)
+
+    def test_attempt_ban_already_banned_user(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.post(f'/user/ban/{self.regular_user.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response: Response = self.client.post(f'/user/ban/{self.regular_user.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+@override_settings(APP_ADMIN_CODE='TEST_ADMIN_CODE')
+class TestDismissReports(APITestCase):
+    def setUp(self):
+        self.moderator_user = User.objects.create(email="moderator_user@example.com", name="Moderator User", moderator=True)
+        self.moderator_token = security.generate_token(self.moderator_user)
+        self.regular_user = User.objects.create(email="regular_user@example.com", name="Regular User")
+        self.another_moderator = User.objects.create(email="moderator2@example.com", name="Another Moderator", moderator=True)
+        self.banned_user = User.objects.create(email="banned_user@example.com", name="Banned User", banned=True)
+        self.report1 = UserReport.objects.create(user=self.moderator_user, reported=self.another_moderator)
+        self.report2 = UserReport.objects.create(user=self.another_moderator, reported=self.regular_user)
+
+    def test_successful_dismiss_reports_by_admin(self):
+        headers = {'HTTP_ADMINCODE': 'TEST_ADMIN_CODE'}
+        response: Response = self.client.delete(f'/user/dismiss-reports/{self.regular_user.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(UserReport.objects.filter(reported=self.regular_user).exists())
+
+    def test_successful_dismiss_reports_by_moderator(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.delete(f'/user/dismiss-reports/{self.regular_user.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(UserReport.objects.filter(reported=self.regular_user).exists())
+
+    def test_attempt_dismiss_reports_for_moderator_by_another_moderator(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.delete(f'/user/dismiss-reports/{self.another_moderator.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(UserReport.objects.filter(reported=self.another_moderator).exists())
+
+    def test_successful_dismiss_reports_for_moderator_by_admin(self):
+        UserReport.objects.create(user=self.regular_user, reported=self.another_moderator)
+        headers = {'HTTP_ADMINCODE': 'TEST_ADMIN_CODE'}
+        response: Response = self.client.delete(f'/user/dismiss-reports/{self.another_moderator.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(UserReport.objects.filter(reported=self.another_moderator).exists())
+
+    def test_attempt_dismiss_reports_for_banned_user(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.delete(f'/user/dismiss-reports/{self.banned_user.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

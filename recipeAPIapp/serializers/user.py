@@ -62,3 +62,68 @@ class ReportSerializer(serializers.ModelSerializer):
         validated_data['user'] = self.user
         validated_data['reported'] = self.reported
         return super().create(validated_data)
+
+
+class UserSmallData(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ('id', 'photo', 'name', 'created_at')
+
+
+class UserFilterData(serializers.ModelSerializer):
+    rating_count = serializers.IntegerField()
+    recipe_count = serializers.IntegerField()
+    avg_rating = serializers.FloatField()
+
+    class Meta:
+        model = User
+        fields = UserSmallData.Meta.fields + ('rating_count', 'recipe_count', 'avg_rating')
+
+
+class UserModeratorFilterData(UserFilterData):
+    report_count = serializers.IntegerField()
+
+    class Meta:
+        model = User
+        fields = UserFilterData.Meta.fields + ('moderator', 'report_count')
+
+
+class UserData(serializers.ModelSerializer):
+    rating_count = serializers.SerializerMethodField()
+    recipe_count = serializers.SerializerMethodField()
+    avg_rating = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = UserFilterData.Meta.fields + ('about',)
+    
+    def get_rating_count(self, obj: User):
+        return Rating.objects.filter(recipe__user=obj).count()
+
+    def get_recipe_count(self, obj: User):
+        return Recipe.objects.filter(user=obj, submit_status=Statuses.ACCEPTED).count()
+    
+    def get_avg_rating(self, obj: User):
+        return Rating.objects.filter(recipe__user=obj).aggregate(Avg('stars'))['stars__avg'] or 0 
+
+
+class UserModeratorData(UserData):
+    report_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = UserData.Meta.fields + ('email', 'moderator', 'report_count',)
+
+    def get_report_count(self, obj: User):
+        return UserReport.objects.filter(reported=obj).count()
+
+
+class UserSelfData(UserData):
+    verified = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = UserData.Meta.fields + ('email', 'moderator', 'verified')
+
+    def get_verified(self, obj: User):
+        return obj.vcode is None

@@ -102,3 +102,18 @@ class DismissReportsView(APIView):
         moderator_id = permission.user_id(request)
         log.info(f"User reports dismissed - moderator {moderator_id}, reported {reported.pk}")
         return Response({}, status=status.HTTP_204_NO_CONTENT)
+
+
+class UserDetailView(APIView):
+    def get(self, request: Request, user_id: int):
+        moderator = permission.is_admin_or_moderator(request)
+        user: User = get(User, pk=user_id, banned=False)
+        serializer = serializers.UserModeratorData if moderator else serializers.UserData
+        return Response(serializer(instance=user).data, status=status.HTTP_200_OK)
+
+
+class UserSelfDetailView(APIView):
+    def get(self, request: Request):
+        user: User = permission.user(request)
+        serializer = serializers.UserSelfData(instance=user)
+        return Response(serializer.data, status=status.HTTP_200_OK)

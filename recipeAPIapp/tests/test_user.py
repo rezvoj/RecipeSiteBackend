@@ -259,3 +259,130 @@ class TestDismissReports(APITestCase):
         headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
         response: Response = self.client.delete(f'/user/dismiss-reports/{self.banned_user.pk}', format='json', **headers)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+@override_settings(APP_ADMIN_CODE='TEST_ADMIN_CODE')
+@override_settings(DEFAULT_FILE_STORAGE=media_utils.TEST_DEFAULT_FILE_STORAGE)
+@override_settings(MEDIA_ROOT=media_utils.TEST_MEDIA_ROOT)
+class TestUserDetail(APITestCase):
+    def setUp(self):
+        self.regular_user = User.objects.create(
+            email="regular_user@example.com", 
+            name="Regular User", 
+            photo=media_utils.generate_test_image()
+        )
+        self.moderator_user = User.objects.create(
+            email="moderator_user@example.com", 
+            name="Moderator User", moderator=True
+        )
+        self.moderator_token = security.generate_token(self.moderator_user)
+        self.recipe1 = Recipe.objects.create(
+            user=self.regular_user, name="Recipe 1", 
+            title="Recipe 1 Title", submit_status=SubmitStatuses.ACCEPTED,
+            prep_time=100, calories=10
+        )
+        self.recipe2 = Recipe.objects.create(
+            user=self.regular_user, name="Recipe 2", 
+            title="Recipe 2 Title", submit_status=SubmitStatuses.ACCEPTED,
+            prep_time=10, calories=100
+        )
+        Rating.objects.create(user=self.regular_user, recipe=self.recipe1, stars=4)
+        Rating.objects.create(user=self.regular_user, recipe=self.recipe2, stars=5)
+        self.report1 = UserReport.objects.create(user=self.moderator_user, reported=self.regular_user)
+
+    def tearDown(self):
+        media_utils.delete_test_media()
+
+    def test_regular_user_request(self):
+        response: Response = self.client.get(f'/user/detail/{self.regular_user.pk}', format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        expected_data = {
+            'id': self.regular_user.pk,
+            'photo': self.regular_user.photo.url,
+            'name': self.regular_user.name,
+            'created_at': self.regular_user.created_at.isoformat(),
+            'about': self.regular_user.about,
+            'rating_count': 2, 'recipe_count': 2, 'avg_rating': 4.5,
+        }
+        self.assertEqual(response.data, expected_data)
+
+    def test_moderator_request(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.get(f'/user/detail/{self.regular_user.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        expected_data = {
+            'id': self.regular_user.pk,
+            'photo': self.regular_user.photo.url,
+            'name': self.regular_user.name,
+            'created_at': self.regular_user.created_at.isoformat(),
+            'about': self.regular_user.about,
+            'email': self.regular_user.email,
+            'moderator': self.regular_user.moderator,
+            'rating_count': 2, 'recipe_count': 2, 'avg_rating': 4.5, 'report_count': 1,
+        }
+        self.assertEqual(response.data, expected_data)
+
+    def test_request_for_non_existent_user(self):
+        response: Response = self.client.get('/user/detail/99999', format='json')
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_request_for_banned_user(self):
+        banned_user = User.objects.create(email="banned_user@example.com", name="Banned User", banned=True)
+        response: Response = self.client.get(f'/user/detail/{banned_user.pk}', format='json')
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+@override_settings(DEFAULT_FILE_STORAGE=media_utils.TEST_DEFAULT_FILE_STORAGE)
+@override_settings(MEDIA_ROOT=media_utils.TEST_MEDIA_ROOT)
+class TestUserSelfDetail(APITestCase):
+    def setUp(self):
+        self.regular_user = User.objects.create(
+            email="regular_user@example.com", 
+            name="Regular User", 
+            photo=media_utils.generate_test_image(),
+            vcode="verification_code"
+        )
+        self.regular_user_token = security.generate_token(self.regular_user)
+        self.other_user = User.objects.create(email="other_user@example.com", name="Other User")
+        self.recipe1 = Recipe.objects.create(
+            user=self.regular_user,
+            name="Recipe 1", title="Recipe 1 Title", 
+            submit_status=SubmitStatuses.ACCEPTED,
+            prep_time=100, calories=10
+        )
+        Rating.objects.create(user=self.regular_user, recipe=self.recipe1, stars=4)
+        Rating.objects.create(user=self.other_user, recipe=self.recipe1, stars=1)
+
+    def tearDown(self):
+        media_utils.delete_test_media()
+
+    def test_self_detail(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.regular_user_token}'}
+        response: Response = self.client.get('/user/self-detail', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        expected_data = {
+            'id': self.regular_user.pk,
+            'photo': self.regular_user.photo.url,
+            'name': self.regular_user.name,
+            'created_at': self.regular_user.created_at.isoformat(),
+            'about': self.regular_user.about,
+            'email': self.regular_user.email,
+            'moderator': self.regular_user.moderator,
+            'rating_count': 2,
+            'recipe_count': 1,
+            'avg_rating': 2.5,
+            'verified': False,
+        }
+        self.assertEqual(response.data, expected_data)
+
+    def test_self_detail_verified_user(self):
+        self.regular_user.vcode = None
+        self.regular_user.save()
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.regular_user_token}'}
+        response: Response = self.client.get('/user/self-detail', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['verified'])
+
+    def test_self_detail_unauthenticated(self):
+        response: Response = self.client.get('/user/self-detail', format='json')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

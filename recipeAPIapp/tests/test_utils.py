@@ -9,12 +9,14 @@ from django.test import override_settings
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db.models import Count, Avg
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from rest_framework import status, serializers
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.test import APITestCase, APIRequestFactory
 import recipeAPIapp.utils.exception as Exceptions
+import recipeAPIapp.utils.filtering as Filtering
 import recipeAPIapp.utils.permission as Permissions
 import recipeAPIapp.utils.security as Security
 import recipeAPIapp.utils.validation as Validation
@@ -24,7 +26,7 @@ from recipeAPIapp.apps import Config
 from recipeAPIapp.utils.exception import VerificationException
 from recipeAPIapp.models.timestamp import utc_now
 from recipeAPIapp.models.user import User, EmailRecord
-from recipeAPIapp.models.recipe import Recipe
+from recipeAPIapp.models.recipe import Recipe, Rating, SubmitStatuses
 
 
 
@@ -98,6 +100,210 @@ class TestExceptionHandler(APITestCase):
         response: Response = self.client.get('/test/exceptions/internal-server-error')
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(response.data, {})
+
+
+class TestSearchFunction(APITestCase):
+    def setUp(self):
+        self.user1 = User.objects.create(email='user1@example.com', name='John Doe')
+        self.user2 = User.objects.create(email='user2@example.com', name='Jane Smith')
+        self.recipe1 = Recipe.objects.create(
+            title='Spaghetti Bolognese', name='Pasta with Meat Sauce',
+            prep_time=30, calories=600, submit_status=1, user=self.user1
+        )
+        self.recipe2 = Recipe.objects.create(
+            title='Chicken Curry', name='Spicy Chicken Curry',
+            prep_time=45, calories=500, submit_status=1, user=self.user2
+        )
+        self.recipe3 = Recipe.objects.create(
+            title='Apple Pie', name='Sweet Apple Pie',
+            prep_time=60, calories=450, submit_status=1, user=self.user1
+        )
+        self.recipe4 = Recipe.objects.create(
+            title='Banana Bread', name='Moist Banana Bread',
+            prep_time=75, calories=300, submit_status=1, user=self.user2
+        )
+        self.qryset = Recipe.objects.all()
+
+    def test_basic_keyword_match(self):
+        field_names = ['title', 'name']
+        search_string = 'Spaghetti'
+        filtered_qryset = Filtering.search(self.qryset, field_names, search_string)
+        self.assertEqual(filtered_qryset.count(), 1)
+        self.assertEqual(filtered_qryset.first().title, 'Spaghetti Bolognese')
+
+    def test_multiple_keywords(self):
+        field_names = ['title', 'name']
+        search_string = 'Sweet Pie'
+        filtered_qryset = Filtering.search(self.qryset, field_names, search_string)
+        self.assertEqual(filtered_qryset.count(), 1)
+        self.assertEqual(filtered_qryset.first().title, 'Apple Pie')
+
+    def test_case_insensitivity(self):
+        field_names = ['title', 'name']
+        search_string = 'chIcKeN'
+        filtered_qryset = Filtering.search(self.qryset, field_names, search_string)
+        self.assertEqual(filtered_qryset.count(), 1)
+        self.assertEqual(filtered_qryset.first().title, 'Chicken Curry')
+
+    def test_plural_and_possessive_endings(self):
+        field_names = ['title', 'name']
+        search_string = "Apples's Pies"
+        filtered_qryset = Filtering.search(self.qryset, field_names, search_string)
+        self.assertEqual(filtered_qryset.count(), 1)
+        self.assertEqual(filtered_qryset.first().title, 'Apple Pie')
+
+    def test_no_matches(self):
+        field_names = ['title', 'name']
+        search_string = 'Lasagna'
+        filtered_qryset = Filtering.search(self.qryset, field_names, search_string)
+        self.assertEqual(filtered_qryset.count(), 0)
+
+    def test_empty_search_string(self):
+        field_names = ['title', 'name']
+        search_string = ''
+        filtered_qryset = Filtering.search(self.qryset, field_names, search_string)
+        self.assertEqual(filtered_qryset.count(), self.qryset.count())
+
+    def test_search_across_multiple_fields(self):
+        field_names = ['title', 'name']
+        search_string = 'Moist Bread'
+        filtered_qryset = Filtering.search(self.qryset, field_names, search_string)
+        self.assertEqual(filtered_qryset.count(), 1)
+        self.assertEqual(filtered_qryset.first().title, 'Banana Bread')
+
+
+class TestOrderByFunction(APITestCase):
+    def setUp(self):
+        self.user1 = User.objects.create(email='user1@example.com', name='John Doe')
+        self.user2 = User.objects.create(email='user2@example.com', name='Jane Smith')
+        self.user3 = User.objects.create(email='user3@example.com', name='John Smith')
+        self.user4 = User.objects.create(email='user4@example.com', name='Jane Doe')
+        self.recipe1 = Recipe.objects.create(
+            title='Spaghetti Bolognese', name='Pasta with Meat Sauce',
+            prep_time=30, calories=600, submit_status=SubmitStatuses.ACCEPTED,
+            created_at=utc_now() - timedelta(days=5), user=self.user1
+        )
+        self.recipe2 = Recipe.objects.create(
+            title='Chicken Curry', name='Spicy Chicken Curry',
+            prep_time=45, calories=500, submit_status=SubmitStatuses.ACCEPTED,
+            created_at=utc_now() - timedelta(days=10), user=self.user2
+        )
+        self.recipe3 = Recipe.objects.create(
+            title='Apple Pie', name='Sweet Apple Pie',
+            prep_time=60, calories=450, submit_status=SubmitStatuses.ACCEPTED,
+            created_at=utc_now() - timedelta(days=2), user=self.user1
+        )
+        self.recipe4 = Recipe.objects.create(
+            title='Banana Bread',name='Moist Banana Bread',
+            prep_time=75, calories=300, submit_status=SubmitStatuses.ACCEPTED,
+            created_at=utc_now() - timedelta(days=8), user=self.user2
+        )
+        Rating.objects.create(recipe=self.recipe1,user=self.user1, stars=2, created_at=utc_now() - timedelta(days=3))
+        Rating.objects.create(recipe=self.recipe1, user=self.user2, stars=5, created_at=utc_now() - timedelta(days=4))
+        Rating.objects.create(recipe=self.recipe1, user=self.user3, stars=4, created_at=utc_now() - timedelta(days=9))
+        Rating.objects.create(recipe=self.recipe2, user=self.user1, stars=5, created_at=utc_now() - timedelta(days=3))
+        Rating.objects.create(recipe=self.recipe2, user=self.user2, stars=4, created_at=utc_now() - timedelta(days=5))
+        Rating.objects.create(recipe=self.recipe2, user=self.user3, stars=1, created_at=utc_now() - timedelta(days=11))
+        Rating.objects.create(recipe=self.recipe3, user=self.user1, stars=5, created_at=utc_now() - timedelta(days=1))
+        Rating.objects.create(recipe=self.recipe3, user=self.user2, stars=4, created_at=utc_now() - timedelta(days=8))
+        Rating.objects.create(recipe=self.recipe3, user=self.user3, stars=2, created_at=utc_now() - timedelta(days=10))
+        Rating.objects.create(recipe=self.recipe3, user=self.user4, stars=5, created_at=utc_now() - timedelta(days=9))
+        self.qryset = Recipe.objects.all()
+    
+    def test_order_by_simple_fields(self):
+        vdata = {'order_by': ['name', '-title', 'calories', '-prep_time']}
+        ordered_qryset = Filtering.order_by(self.qryset, vdata)
+        expected_qryset = [self.recipe4, self.recipe1, self.recipe2, self.recipe3]
+        self.assertEqual(list(ordered_qryset), list(expected_qryset))
+
+    def test_order_by_with_time_window(self):
+        vdata = {'order_by': ['-avg_rating'], 'order_time_window': 7}
+        replace = {'avg_rating': (Avg, 'rating__stars', 'rating')}
+        ordered_qryset = Filtering.order_by(self.qryset, vdata, **replace)
+        expected_qryset = [self.recipe3, self.recipe2, self.recipe1, self.recipe4]
+        self.assertEqual(list(ordered_qryset), list(expected_qryset))
+
+    def test_order_by_multiple_with_time_window(self):
+        vdata = {'order_by': ['-rating_count', '-avg_rating'], 'order_time_window': 7}
+        replace = {'rating_count': (Count, 'rating', 'rating'), 'avg_rating': (Avg, 'rating__stars', 'rating')}
+        ordered_qryset = Filtering.order_by(self.qryset, vdata, **replace)
+        expected_qryset = [self.recipe2, self.recipe1, self.recipe3, self.recipe4]
+        self.assertEqual(list(ordered_qryset), list(expected_qryset))
+
+    def test_order_by_without_time_window(self):
+        vdata = {'order_by': ['-rating_count', '-avg_rating']}
+        replace = {'rating_count': (Count, 'rating', 'rating'), 'avg_rating': (Avg, 'rating__stars', 'rating')}
+        self.qryset = self.qryset.annotate(rating_count=Count('rating'), avg_rating=Avg('rating__stars'))
+        ordered_qryset = Filtering.order_by(self.qryset, vdata, **replace)
+        expected_qryset = [self.recipe3, self.recipe1, self.recipe2, self.recipe4]
+        self.assertEqual(list(ordered_qryset), list(expected_qryset))
+
+
+class TestPaginateFunction(APITestCase):
+    def setUp(self):
+        self.user1 = User.objects.create(email='user1@example.com', name='John Doe')
+        self.user2 = User.objects.create(email='user2@example.com', name='Jane Smith')
+        self.recipe1 = Recipe.objects.create(
+            title='Spaghetti Bolognese', name='Pasta with Meat Sauce',
+            prep_time=30, calories=600, submit_status=1, user=self.user1
+        )
+        self.recipe2 = Recipe.objects.create(
+            title='Chicken Curry', name='Spicy Chicken Curry',
+            prep_time=45, calories=500, submit_status=1, user=self.user2
+        )
+        self.recipe3 = Recipe.objects.create(
+            title='Apple Pie', name='Sweet Apple Pie',
+            prep_time=60, calories=450, submit_status=1, user=self.user1
+        )
+        self.recipe4 = Recipe.objects.create(
+            title='Banana Bread', name='Moist Banana Bread',
+            prep_time=75, calories=300, submit_status=1, user=self.user2
+        )
+        self.qryset = Recipe.objects.all()
+
+    def serialize_function(self, queryset):
+        return [{'title': recipe.title} for recipe in queryset]
+
+    def test_basic_pagination(self):
+        vdata = {'page': 1, 'page_size': 2}
+        result = Filtering.paginate(self.qryset, vdata, self.serialize_function)
+        self.assertEqual(result['count'], self.qryset.count())
+        self.assertEqual(result['page'], 1)
+        self.assertEqual(result['page_size'], 2)
+        self.assertEqual(len(result['results']), 2)
+        self.assertEqual(result['results'][0]['title'], 'Spaghetti Bolognese')
+        self.assertEqual(result['results'][1]['title'], 'Chicken Curry')
+
+    def test_page_number_exceeds_total_pages(self):
+        vdata = {'page': 3, 'page_size': 2}
+        result = Filtering.paginate(self.qryset, vdata, self.serialize_function)
+        self.assertEqual(result['count'], self.qryset.count())
+        self.assertEqual(result['page'], 3)
+        self.assertEqual(result['page_size'], 2)
+        self.assertEqual(len(result['results']), 0)
+
+    def test_page_size_zero(self):
+        vdata = {'page': 1, 'page_size': 0}
+        result = Filtering.paginate(self.qryset, vdata, self.serialize_function)
+        self.assertEqual(result['count'], self.qryset.count())
+        self.assertEqual(result['page'], 1)
+        self.assertEqual(result['page_size'], 0)
+        self.assertEqual(len(result['results']), 0)
+
+    def test_less_than_page_size_results(self):
+        vdata = {'page': 2, 'page_size': 3}
+        result = Filtering.paginate(self.qryset, vdata, self.serialize_function)
+        self.assertEqual(result['count'], self.qryset.count())
+        self.assertEqual(result['page'], 2)
+        self.assertEqual(result['page_size'], 3)
+        self.assertEqual(len(result['results']), 1)
+        self.assertEqual(result['results'][0]['title'], 'Banana Bread')
+
+    def test_serialization_function(self):
+        vdata = {'page': 1, 'page_size': 2}
+        result = Filtering.paginate(self.qryset, vdata, self.serialize_function)
+        expected_results = [{'title': recipe.title} for recipe in self.qryset[:2]]
+        self.assertEqual(result['results'], expected_results)
 
 
 @override_settings(APP_ADMIN_CODE='TEST_ADMIN_CODE')

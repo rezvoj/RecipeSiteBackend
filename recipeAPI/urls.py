@@ -14,7 +14,8 @@ urlpatterns = [
     path('user/dismiss-reports/<int:user_id>', UserViews.DismissReportsView.as_view()),
     path('user/detail/<int:user_id>', UserViews.UserDetailView.as_view()),
     path('user/self-detail', UserViews.UserSelfDetailView.as_view()),
-
+    path('user/filter/paged', UserViews.UserFilterView.as_view()),
+    
     path('auth/token', AuthViews.TokenView.as_view()),
     path('auth/login', AuthViews.LoginView.as_view()),
     path('auth/update', AuthViews.UpdateView.as_view()),

@@ -127,3 +127,20 @@ class UserSelfData(UserData):
 
     def get_verified(self, obj: User):
         return obj.vcode is None
+
+
+class UserFilter(serializers.Serializer):
+    moderator = serializers.BooleanField(default=False)
+    search_string = serializers.CharField(required=False)
+    order_by = serializers.ListField(child=serializers.CharField(), required=False)
+    order_time_window = serializers.IntegerField(min_value=1, required=False)
+    page = serializers.IntegerField(default=1, min_value=1)
+    page_size = serializers.IntegerField(default=20, min_value=1, max_value=100)
+
+    def __init__(self, *args, mod: bool, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.mod = mod
+
+    def validate_order_by(self, value):
+        params = ['report_count'] if self.mod else []
+        return validation.order_by(value, ['name', 'recipe_count', 'avg_rating'] + params)

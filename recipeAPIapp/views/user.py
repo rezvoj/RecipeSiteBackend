@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 from rest_framework.generics import get_object_or_404 as get
 import recipeAPIapp.serializers.user as serializers
 import recipeAPIapp.utils.permission as permission
+import recipeAPIapp.utils.filtering as filtering
 import recipeAPIapp.utils.security as security
 import recipeAPIapp.utils.validation as validation
 from recipeAPIapp.apps import Config
@@ -117,3 +118,32 @@ class UserSelfDetailView(APIView):
         user: User = permission.user(request)
         serializer = serializers.UserSelfData(instance=user)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class UserFilterView(APIView):
+    def get(self, request: Request):
+        admin = permission.is_admin(request)
+        moderator = admin or (isinstance(request.user, User) and request.user.moderator)
+        serializer = serializers.UserFilter(data=request.query_params, mod=moderator)
+        vdata = validation.serializer(serializer).validated_data
+        qryset = User.objects.filter(banned=False)
+        if vdata['moderator'] and admin:
+            qryset = qryset.filter(moderator=True)
+        if 'search_string' in vdata:
+            qryset = filtering.search(qryset, ['name'], vdata['search_string'])
+        filter = Q(recipe__submit_status=Statuses.ACCEPTED)
+        qryset = qryset.annotate(recipe_count=Count('recipe', distinct=True), filter=filter)
+        qryset = qryset.annotate(rating_count=Count('recipe__rating', distinct=True))
+        qryset = qryset.annotate(avg_rating=Avg('recipe__rating__stars', distinct=True))
+        if moderator:
+            qryset = qryset.annotate(report_count=Count('reported', distinct=True))
+        replace = {
+            'recipe_count': (Count, 'recipe', 'recipe'),
+            'rating_count': (Count, 'recipe__rating', 'recipe__rating'),
+            'avg_rating': (Avg, 'recipe__rating__stars', 'recipe__rating'),           
+            **({'report_count': (Count, 'reported', 'reported')} if moderator else {})
+        }
+        qryset = filtering.order_by(qryset, vdata, **replace)
+        serializer = serializers.UserModeratorFilterData if moderator else serializers.UserFilterData
+        result = filtering.paginate(qryset, vdata, lambda qs: serializer(qs, many=True).data)
+        return Response(result, status=status.HTTP_200_OK)

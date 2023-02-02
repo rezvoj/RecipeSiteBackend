@@ -2,6 +2,7 @@ from django.urls import path
 from django.conf import settings
 import recipeAPIapp.views.user as UserViews
 import recipeAPIapp.views.auth as AuthViews
+import recipeAPIapp.views.categorical as CategoricalViews
 import recipeAPIapp.views.media as MediaViews
 
 
@@ -15,7 +16,7 @@ urlpatterns = [
     path('user/detail/<int:user_id>', UserViews.UserDetailView.as_view()),
     path('user/self-detail', UserViews.UserSelfDetailView.as_view()),
     path('user/filter/paged', UserViews.UserFilterView.as_view()),
-    
+
     path('auth/token', AuthViews.TokenView.as_view()),
     path('auth/login', AuthViews.LoginView.as_view()),
     path('auth/update', AuthViews.UpdateView.as_view()),
@@ -23,6 +24,9 @@ urlpatterns = [
     path('auth/email-verification/<str:code>', AuthViews.VerificationView.as_view()),
     path('auth/password-reset', AuthViews.PasswordResetView.as_view()),
     path('auth/password-reset/<int:user_id>/<str:code>', AuthViews.PasswordResetView.as_view()),
+
+    path('category', CategoricalViews.CategoryView.as_view()),
+    path('category/<int:category_id>', CategoricalViews.CategoryView.as_view()),
 
 ]
 

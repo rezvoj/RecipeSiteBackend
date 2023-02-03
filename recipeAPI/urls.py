@@ -27,6 +27,7 @@ urlpatterns = [
 
     path('category', CategoricalViews.CategoryView.as_view()),
     path('category/<int:category_id>', CategoricalViews.CategoryView.as_view()),
+    path('category/change-favourite/<int:category_id>', CategoricalViews.CategoryFavourView.as_view()),
 
 ]
 

@@ -49,3 +49,16 @@ class CategoryView(APIView):
         moderator_id = permission.user_id(request)
         log.info(f"Category deleted - category {category_id}, moderator {moderator_id}")
         return Response({}, status=status.HTTP_204_NO_CONTENT)
+
+
+class CategoryFavourView(APIView):
+    @transaction.atomic
+    def post(self, request: Request, category_id: int):
+        user: User = permission.verified(request)
+        category: Category = get(Category, pk=category_id)
+        favoured = category.favoured_by.filter(pk=user.pk).exists()
+        if favoured:
+            category.favoured_by.remove(user)
+        else:
+            category.favoured_by.add(user)
+        return Response({}, status=status.HTTP_200_OK)

@@ -133,3 +133,42 @@ class TestCategoryCUD(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Category.objects.filter(pk=category.pk).exists())
         self.assertTrue(Recipe.objects.filter(pk=recipe.pk).exists())
+
+
+@override_settings(DEFAULT_FILE_STORAGE=media_utils.TEST_DEFAULT_FILE_STORAGE)
+@override_settings(MEDIA_ROOT=media_utils.TEST_MEDIA_ROOT)
+class TestCategoryFavour(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create(email="user@example.com", name="Regular User")
+        self.user_token = security.generate_token(self.user)
+        self.category = Category.objects.create(name="Category", photo=media_utils.generate_test_image())
+    
+    def tearDown(self):
+        media_utils.delete_test_media()
+    
+    def test_add_category_to_favourites(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(f'/category/change-favourite/{self.category.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(self.category.favoured_by.filter(pk=self.user.pk).exists())
+    
+    def test_remove_category_from_favourites(self):
+        self.category.favoured_by.add(self.user)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(f'/category/change-favourite/{self.category.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(self.category.favoured_by.filter(pk=self.user.pk).exists())
+    
+    def test_favour_non_existent_category(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post('/category/change-favourite/999', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+    
+    def test_favour_category_unauthorized(self):
+        response: Response = self.client.post(f'/category/change-favourite/{self.category.pk}', format='json')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        unverified_user = User.objects.create(email="unverified@example.com", name="Unverified User", vcode="NotNone")
+        unverified_token = security.generate_token(unverified_user)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {unverified_token}'}
+        response: Response = self.client.post(f'/category/change-favourite/{self.category.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

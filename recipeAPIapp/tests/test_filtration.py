@@ -289,3 +289,154 @@ class TestUserFilter(APITestCase):
         self.assertEqual(response.data['results'][2]['id'], self.charlie.pk)
         self.assertEqual(response.data['results'][0]['moderator'], True)
         self.assertEqual(response.data['results'][0]['report_count'], 2)
+
+
+
+@override_settings(DEFAULT_FILE_STORAGE=media_utils.TEST_DEFAULT_FILE_STORAGE)
+@override_settings(MEDIA_ROOT=media_utils.TEST_MEDIA_ROOT)
+@override_settings(APP_ADMIN_CODE='TEST_ADMIN_CODE')
+class TestCategoryFilter(APITestCase): 
+    
+    def setUp(self):
+        self.test_user = User.objects.create(email="testuser@example.com", name="Test User")
+        self.user_token = security.generate_token(self.test_user)
+        self.other_user = User.objects.create(email="testuser2@example.com", name="Test User2")
+
+        """ Category 1: Main Appetizers, favoured: yes, recipes: 2 (2 new) (1 (1 new) by test user)"""
+        self.appetizers = Category.objects.create(
+            name="Main Appetizers", about="Starters and light bites", 
+            photo=media_utils.generate_test_image()
+        )
+        self.appetizers.favoured_by.add(self.test_user)
+        self.appetizers.save()
+        recipe1 = Recipe.objects.create(
+            user=self.test_user, name="Bruschetta", title="Italian Bruschetta",
+            submit_status=SubmitStatuses.ACCEPTED, prep_time=15, calories=200
+        )
+        recipe1.categories.add(self.appetizers)
+        recipe1.save()
+        recipe2 = Recipe.objects.create(
+            user=self.other_user, name="Stuffed Mushrooms", title="Cheesy Stuffed Mushrooms",
+            submit_status=SubmitStatuses.ACCEPTED, prep_time=25, calories=150
+        )
+        recipe2.categories.add(self.appetizers)
+        recipe2.save()
+
+        """ Category 2: Main Courses, favoured: no, recipes: 3 (1 new) (1 (1 new) by test user) """
+        self.main_courses = Category.objects.create(
+            name="Main Courses", about="Hearty and filling dishes", 
+            photo=media_utils.generate_test_image()
+        )
+        recipe1 = Recipe.objects.create(
+            user=self.test_user, name="Grilled Chicken", title="Juicy Grilled Chicken",
+            submit_status=SubmitStatuses.ACCEPTED, prep_time=60, calories=400
+        )
+        recipe1.categories.add(self.main_courses)
+        recipe1.save()
+        recipe2 = Recipe.objects.create(
+            user=self.other_user, name="Steak and Potatoes", title="Classic Steak and Potatoes",
+            submit_status=SubmitStatuses.ACCEPTED, prep_time=90, calories=600,
+            created_at=utc_now() - timedelta(days=10)
+        )
+        recipe2.categories.add(self.main_courses)
+        recipe2.save()
+        recipe3 = Recipe.objects.create(
+            user=self.other_user, name="Vegetarian Lasagna", title="Healthy Vegetarian Lasagna",
+            submit_status=SubmitStatuses.ACCEPTED, prep_time=120, calories=450,
+            created_at=utc_now() - timedelta(days=10)
+        )
+        recipe3.categories.add(self.main_courses)
+        recipe3.save()
+
+        """ Category 3: Desserts, favoured: yes, recipes: 1 (0 new) (0 by test user)"""
+        self.desserts = Category.objects.create(
+            name="Desserts", about="Sweet and delightful treats", 
+            photo=media_utils.generate_test_image()
+        )
+        self.desserts.favoured_by.add(self.test_user)
+        self.desserts.save()
+        recipe1 = Recipe.objects.create(
+            user=self.other_user, name="Chocolate Cake", title="Rich Chocolate Cake",
+            submit_status=SubmitStatuses.ACCEPTED, prep_time=90, calories=500,
+            created_at=utc_now() - timedelta(days=10)
+        )
+        recipe1.categories.add(self.desserts)
+        recipe1.save()
+
+        """ Category 4: Main Salads, favoured: no, recipes: 2 (0 new) (2 by test user)"""
+        self.salads = Category.objects.create(
+            name="Main Salads", about="Fresh and healthy salads"
+        )
+        recipe1 = Recipe.objects.create(
+            user=self.test_user, name="Caesar Salad", title="Classic Caesar Salad",
+            submit_status=SubmitStatuses.ACCEPTED, prep_time=20, calories=300,
+            created_at=utc_now() - timedelta(days=10)
+        )
+        recipe1.categories.add(self.salads)
+        recipe1.save()
+        recipe2 = Recipe.objects.create(
+            user=self.test_user, name="Greek Salad", title="Authentic Greek Salad",
+            submit_status=SubmitStatuses.ACCEPTED, prep_time=15, calories=250,
+            created_at=utc_now() - timedelta(days=10)
+        )
+        recipe2.categories.add(self.salads)
+        recipe2.save()
+
+        """ Category 5: Soups, favoured: yes, recipes: 0 """
+        self.soups = Category.objects.create(
+            name="Soups", about="Warm and comforting soups", 
+            photo=media_utils.generate_test_image()
+        )
+        self.soups.favoured_by.add(self.test_user)
+        self.soups.save()
+
+
+    def tearDown(self):
+        media_utils.delete_test_media()
+
+
+    def test_user_filter(self):
+        headers = {'HTTP_AUTHORIZATION': f"Bearer {self.user_token}"}
+        params = {
+            'favoured': True,
+            'order_by': ['-self_recipe_count', '-name'],
+            'page': 1, 'page_size': 2
+        }
+        response: Response = self.client.get(f'/category/filter/paged', params, format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['page'], 1)
+        self.assertEqual(response.data['count'], 3)
+        self.assertEqual(len(response.data['results']), 2)
+        expected_appetizers = {
+            'id': self.appetizers.pk, 'name': "Main Appetizers",
+            'photo': self.appetizers.photo.url, 
+            'about': "Starters and light bites", 
+            'recipe_count': 2, 'self_recipe_count': 1, 'favoured': True
+        }
+        self.assertEqual(response.data['results'][0], expected_appetizers)
+        self.assertEqual(response.data['results'][1]['id'], self.soups.pk)
+        params['page'] = 2
+        response: Response = self.client.get(f'/category/filter/paged', params, format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['page'], 2)
+        self.assertEqual(response.data['count'], 3)
+        self.assertEqual(len(response.data['results']), 1)
+        self.assertEqual(response.data['results'][0]['id'], self.desserts.pk)
+
+
+    def test_anon_filter(self):
+        headers = {}
+        params = {
+            'search_string': 'main',
+            'favoured': True, 'order_time_window': 5,
+            'order_by': ['-recipe_count', 'name'],
+            'page': 1, 'page_size': 4
+        }
+        response: Response = self.client.get(f'/category/filter/paged', params, format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 3)
+        self.assertEqual(response.data['results'][0]['id'], self.appetizers.pk)
+        self.assertEqual(response.data['results'][0]['self_recipe_count'], 0)
+        self.assertEqual(response.data['results'][0]['favoured'], None)
+        self.assertEqual(response.data['results'][1]['id'], self.main_courses.pk)
+        self.assertEqual(response.data['results'][2]['id'], self.salads.pk)

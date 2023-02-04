@@ -62,3 +62,21 @@ class CategoryFavourView(APIView):
         else:
             category.favoured_by.add(user)
         return Response({}, status=status.HTTP_200_OK)
+
+
+class CategoryFilterView(APIView):
+    def get(self, request: Request):
+        user = request.user
+        serializer = serializers.CategoryFilter(data=request.query_params)
+        vdata = validation.serializer(serializer).validated_data
+        qryset = Category.objects.all()
+        if vdata['favoured'] and isinstance(user, User):
+            qryset = qryset.filter(favoured_by=user)
+        if 'search_string' in vdata:
+            qryset = filtering.search(qryset, ['name'], vdata['search_string'])
+        qryset = qryset.annotate(recipe_count=Count('recipes', distinct=True), filter=Q(recipes__submit_status=Statuses.ACCEPTED))
+        function = Count('recipes', distinct=True, filter=Q(recipes__user=user)) if isinstance(user, User) else Value(0)
+        qryset = qryset.annotate(self_recipe_count=function)
+        qryset = filtering.order_by(qryset, vdata, recipe_count=(Count, 'recipes', 'recipes'))
+        result = filtering.paginate(qryset, vdata, lambda qs: serializers.CategoryData(qs, user=user, many=True).data)
+        return Response(result, status=status.HTTP_200_OK)

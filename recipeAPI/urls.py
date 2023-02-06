@@ -30,6 +30,9 @@ urlpatterns = [
     path('category/change-favourite/<int:category_id>', CategoricalViews.CategoryFavourView.as_view()),
     path('category/filter/paged', CategoricalViews.CategoryFilterView.as_view()),
 
+    path('ingredient', CategoricalViews.IngredientView.as_view()),
+    path('ingredient/<int:ingredient_id>', CategoricalViews.IngredientView.as_view()),
+
 ]
 
 if settings.DEFAULT_FILE_STORAGE == 'django.core.files.storage.FileSystemStorage':

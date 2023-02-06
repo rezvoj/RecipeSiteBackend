@@ -53,3 +53,12 @@ class CategoryFilter(serializers.Serializer):
 
     def validate_order_by(self, value):
         return validation.order_by(value, ['name', 'recipe_count', 'self_recipe_count'])
+
+
+class IngredientSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Ingredient
+        fields = ('photo', 'unit', 'name', 'about')
+    
+    def validate_photo(self, value):
+        return validation.photo(value)

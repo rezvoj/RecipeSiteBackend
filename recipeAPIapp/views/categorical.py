@@ -80,3 +80,35 @@ class CategoryFilterView(APIView):
         qryset = filtering.order_by(qryset, vdata, recipe_count=(Count, 'recipes', 'recipes'))
         result = filtering.paginate(qryset, vdata, lambda qs: serializers.CategoryData(qs, user=user, many=True).data)
         return Response(result, status=status.HTTP_200_OK)
+
+
+class IngredientView(APIView):
+    @transaction.atomic
+    def post(self, request: Request):
+        permission.admin_or_moderator(request)
+        serializer = serializers.IngredientSerializer(data=request.data)
+        ingredient: Ingredient = validation.serializer(serializer).save()
+        moderator_id = permission.user_id(request)
+        log.info(f"Ingredient created - ingredient {ingredient.pk}, moderator {moderator_id}")
+        return Response({'id': ingredient.pk}, status=status.HTTP_201_CREATED)
+    
+    @transaction.atomic
+    def put(self, request: Request, ingredient_id: int):
+        permission.admin_or_moderator(request)
+        ingredient: Ingredient = get(Ingredient, pk=ingredient_id)
+        serializer = serializers.IngredientSerializer(instance=ingredient, data=request.data, partial=True)
+        validation.serializer(serializer).save()
+        moderator_id = permission.user_id(request)
+        log.info(f"Ingredient updated - ingredient {ingredient.pk}, moderator {moderator_id}")
+        return Response({}, status=status.HTTP_200_OK)
+
+    @transaction.atomic
+    def delete(self, request: Request, ingredient_id: int):
+        permission.admin_or_moderator(request)
+        ingredient: Ingredient = get(Ingredient, pk=ingredient_id)
+        if Recipe.objects.filter(recipeingredient__ingredient=ingredient, submit_status=Statuses.ACCEPTED).exists():
+            permission.admin(request)
+        ingredient.delete()
+        moderator_id = permission.user_id(request)
+        log.info(f"Ingredient deleted - ingredient {ingredient_id}, moderator {moderator_id}")
+        return Response({}, status=status.HTTP_204_NO_CONTENT)

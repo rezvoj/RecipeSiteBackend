@@ -172,3 +172,129 @@ class TestCategoryFavour(APITestCase):
         headers = {'HTTP_AUTHORIZATION': f'Bearer {unverified_token}'}
         response: Response = self.client.post(f'/category/change-favourite/{self.category.pk}', format='json', **headers)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+@override_settings(DEFAULT_FILE_STORAGE=media_utils.TEST_DEFAULT_FILE_STORAGE)
+@override_settings(MEDIA_ROOT=media_utils.TEST_MEDIA_ROOT)
+@override_settings(APP_ADMIN_CODE='TEST_ADMIN_CODE')
+class TestIngredientCUD(APITestCase):    
+    def setUp(self):
+        self.moderator_user = User.objects.create(email="moderator@example.com", name="Moderator", moderator=True)
+        self.moderator_token = security.generate_token(self.moderator_user)
+        self.regular_user = User.objects.create(email="user@example.com", name="Regular User")
+        self.user_token = security.generate_token(self.regular_user)
+
+    def tearDown(self):
+        media_utils.delete_test_media()
+
+    def test_create_ingredient_as_moderator(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.post(
+            '/ingredient', data={
+                "name": "New Ingredient", "about": "This is a new ingredient.", "unit": "kg",
+                "photo": media_utils.generate_test_image()
+            }, format='multipart', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn('id', response.data)
+        new_ingredient = Ingredient.objects.get(pk=response.data['id'])
+        self.assertEqual(new_ingredient.name, "New Ingredient")
+        self.assertEqual(new_ingredient.about, "This is a new ingredient.")
+        self.assertEqual(new_ingredient.unit, "kg")
+        self.assertTrue(new_ingredient.photo)
+
+    def test_update_ingredient_as_moderator(self):
+        ingredient = Ingredient.objects.create(
+            name="Original Ingredient", about="Original about", unit="kg",
+            photo=media_utils.generate_test_image()
+        )
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.put(
+            f'/ingredient/{ingredient.pk}', data={
+                "name": "Updated Ingredient", "about": "This is the updated ingredient."
+            }, format='multipart', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ingredient.refresh_from_db()
+        self.assertEqual(ingredient.name, "Updated Ingredient")
+        self.assertEqual(ingredient.about, "This is the updated ingredient.")
+        self.assertTrue(ingredient.photo)
+
+    def test_delete_ingredient_as_moderator(self):
+        ingredient = Ingredient.objects.create(
+            name="Ingredient to delete", about="To be deleted", unit="kg",
+            photo=media_utils.generate_test_image()
+        )
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.delete(f'/ingredient/{ingredient.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Ingredient.objects.filter(pk=ingredient.pk).exists())
+
+    def test_delete_ingredient_with_accepted_recipes_as_moderator(self):
+        ingredient = Ingredient.objects.create(
+            name="Ingredient with Recipe", about="Cannot delete", unit="kg", 
+            photo=media_utils.generate_test_image()
+        )
+        recipe = Recipe.objects.create(user=self.regular_user, name="Recipe", title="Title", prep_time=10, calories=100)
+        RecipeIngredient.objects.create(recipe=recipe, ingredient=ingredient, amount=1.0)
+        recipe.submit_status = SubmitStatuses.ACCEPTED
+        recipe.save()
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.delete(f'/ingredient/{ingredient.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertTrue(Ingredient.objects.filter(pk=ingredient.pk).exists())
+
+    def test_create_ingredient_unauthorized(self):
+        data = {
+            "name": "Unauthorized Ingredient", "unit": "kg",
+            "photo": media_utils.generate_test_image()
+        }
+        response: Response = self.client.post('/ingredient', data=data, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertFalse(Ingredient.objects.filter(name="Unauthorized Ingredient").exists())
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post('/ingredient', data=data, format='multipart', **headers)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_update_ingredient_unauthorized(self):
+        ingredient = Ingredient.objects.create(
+            name="Original Ingredient", about="Original about", unit="kg",
+            photo=media_utils.generate_test_image()
+        )
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.put(
+            f'/ingredient/{ingredient.pk}', data={
+                "name": "Unauthorized Update", "about": "This should fail."
+            }, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        ingredient.refresh_from_db()
+        self.assertNotEqual(ingredient.name, "Unauthorized Update")
+        self.assertNotEqual(ingredient.about, "This should fail.")
+
+    def test_delete_ingredient_unauthorized(self):
+        ingredient = Ingredient.objects.create(
+            name="Ingredient to delete", about="To be deleted", unit="kg",
+            photo=media_utils.generate_test_image()
+        )
+        response: Response = self.client.delete(f'/ingredient/{ingredient.pk}', format='json')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.delete(f'/ingredient/{ingredient.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertTrue(Ingredient.objects.filter(pk=ingredient.pk).exists())
+
+    def test_delete_ingredient_with_no_accepted_recipes_as_moderator(self):
+        ingredient = Ingredient.objects.create(
+            name="Ingredient with Recipe", about="Can delete", unit="kg",
+            photo=media_utils.generate_test_image()
+        )
+        recipe = Recipe.objects.create(user=self.regular_user, name="Recipe", title="Title", prep_time=10, calories=100)
+        RecipeIngredient.objects.create(recipe=recipe, ingredient=ingredient, amount=1.0)
+        recipe.submit_status = SubmitStatuses.SUBMITTED
+        recipe.save()
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.delete(f'/ingredient/{ingredient.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Ingredient.objects.filter(pk=ingredient.pk).exists())
+        self.assertTrue(Recipe.objects.filter(pk=recipe.pk).exists())

@@ -112,3 +112,38 @@ class IngredientView(APIView):
         moderator_id = permission.user_id(request)
         log.info(f"Ingredient deleted - ingredient {ingredient_id}, moderator {moderator_id}")
         return Response({}, status=status.HTTP_204_NO_CONTENT)
+
+
+class IngredientInventoryView(APIView):
+    @transaction.atomic
+    def post(self, request: Request, ingredient_id: int):
+        user: User = permission.verified(request)
+        ingredient: Ingredient = get(Ingredient, pk=ingredient_id)
+        serializer = serializers.AmountSerializer(data=request.data)
+        vdata = validation.serializer(serializer).validated_data
+        try:
+            user_ingredient = UserIngredient.objects.get(user=user, ingredient=ingredient)
+            user_ingredient.amount += vdata['amount']
+            if user_ingredient.amount <= 0:
+                user_ingredient.delete()
+                response_status = status.HTTP_204_NO_CONTENT
+            else:
+                data = {'amount': user_ingredient.amount}
+                serializer = serializers.AmountValueSerializer(data=data)
+                validation.serializer(serializer)
+                user_ingredient.save()
+                response_status = status.HTTP_200_OK
+        except UserIngredient.DoesNotExist:
+            serializer = serializers.IngredientInventorySerializer(user=user, ingredient=ingredient, data=vdata)
+            validation.serializer(serializer).save()
+            response_status = status.HTTP_201_CREATED
+        log.info(f"User inventory updated - user {user.pk}")
+        return Response({}, status=response_status)
+
+    @transaction.atomic
+    def delete(self, request: Request, ingredient_id: int):
+        user: User = permission.verified(request)
+        user_ingredient: UserIngredient = get(UserIngredient, user=user, ingredient=ingredient_id)
+        user_ingredient.delete()
+        log.info(f"User inventory updated - user {user.pk}")
+        return Response({}, status=status.HTTP_204_NO_CONTENT)

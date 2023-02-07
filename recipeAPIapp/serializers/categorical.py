@@ -62,3 +62,38 @@ class IngredientSerializer(serializers.ModelSerializer):
     
     def validate_photo(self, value):
         return validation.photo(value)
+
+
+class AmountSerializer(serializers.Serializer):
+    amount = serializers.DecimalField(max_digits=5, decimal_places=2)
+
+
+class AmountValueSerializer(serializers.Serializer):
+    amount = serializers.DecimalField(
+        max_digits = 5, 
+        decimal_places = 2,
+        min_value = Decimal('0.01')
+    )
+
+
+class IngredientInventorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserIngredient
+        fields = ('amount', )
+
+    def __init__(self, *args, user: User, ingredient: Ingredient, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+        self.ingredient = ingredient
+
+    def validate(self, data):
+        data = super().validate(data)
+        ingredient_count = UserIngredient.objects.filter(user=self.user).count()
+        if Config.ContentLimits.inventory_limit <= ingredient_count:
+            raise serializers.ValidationError("inventory limit exceeded.")
+        return data
+    
+    def create(self, validated_data):
+        validated_data['user'] = self.user
+        validated_data['ingredient'] = self.ingredient
+        return super().create(validated_data)

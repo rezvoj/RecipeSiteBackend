@@ -147,3 +147,24 @@ class IngredientInventoryView(APIView):
         user_ingredient.delete()
         log.info(f"User inventory updated - user {user.pk}")
         return Response({}, status=status.HTTP_204_NO_CONTENT)
+
+
+class IngredientFilterView(APIView):
+    def get(self, request: Request):
+        user = request.user
+        serializer = serializers.IngredientFilter(data=request.query_params)
+        vdata = validation.serializer(serializer).validated_data
+        qryset = Ingredient.objects.all()
+        if vdata['owned'] and isinstance(user, User):
+            qryset = qryset.filter(useringredient__user=user)
+        if 'search_string' in vdata:
+            qryset = filtering.search(qryset, ['name'], vdata['search_string'])
+        filter = Q(recipeingredient__recipe__submit_status=Statuses.ACCEPTED)
+        qryset = qryset.annotate(recipe_count=Count('recipeingredient', distinct=True), filter=filter)
+        filter = Q(recipeingredient__recipe__user=user)
+        qryset = qryset.annotate(self_recipe_count=Count('recipeingredient', distinct=True, filter=filter) if isinstance(user, User) else Value(0))
+        if vdata['used'] and isinstance(user, User):
+            qryset = qryset.filter(self_recipe_count__gt=0)
+        qryset = filtering.order_by(qryset, vdata, recipe_count=(Count, 'recipeingredient', 'recipeingredient__recipe'))
+        result = filtering.paginate(qryset, vdata, lambda qs: serializers.IngredientData(qs, user=user, many=True).data)
+        return Response(result, status=status.HTTP_200_OK)

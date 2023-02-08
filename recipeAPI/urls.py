@@ -33,6 +33,7 @@ urlpatterns = [
     path('ingredient', CategoricalViews.IngredientView.as_view()),
     path('ingredient/<int:ingredient_id>', CategoricalViews.IngredientView.as_view()),
     path('ingredient/inventory/<int:ingredient_id>', CategoricalViews.IngredientInventoryView.as_view()),
+    path('ingredient/filter/paged', CategoricalViews.IngredientFilterView.as_view()),
 
 ]
 

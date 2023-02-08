@@ -97,3 +97,46 @@ class IngredientInventorySerializer(serializers.ModelSerializer):
         validated_data['user'] = self.user
         validated_data['ingredient'] = self.ingredient
         return super().create(validated_data)
+
+
+class IngredientSmallData(serializers.ModelSerializer):
+    class Meta:
+        model = Ingredient
+        fields = ('id', 'photo', 'unit', 'name')
+
+
+class IngredientData(IngredientSmallData):
+    recipe_count = serializers.IntegerField()
+    self_recipe_count = serializers.IntegerField()
+    self_amount = serializers.SerializerMethodField()
+
+    def __init__(self, *args, user: User, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+
+    class Meta:
+        model = Ingredient
+        fields = IngredientSmallData.Meta.fields + (
+            'about', 'recipe_count', 'self_recipe_count', 'self_amount'
+        )
+
+    def get_self_amount(self, obj: Ingredient):
+        if isinstance(self.user, User):
+            try:
+                return str(UserIngredient.objects.get(user=self.user, ingredient=obj).amount)
+            except UserIngredient.DoesNotExist:
+                return None
+        return None
+
+
+class IngredientFilter(serializers.Serializer):
+    owned = serializers.BooleanField(default=False)
+    used = serializers.BooleanField(default=False)
+    search_string = serializers.CharField(required=False)
+    order_by = serializers.ListField(child=serializers.CharField(), required=False)
+    order_time_window = serializers.IntegerField(min_value=1, required=False)
+    page = serializers.IntegerField(default=1, min_value=1)
+    page_size = serializers.IntegerField(default=20, min_value=1, max_value=100)
+
+    def validate_order_by(self, value):
+        return validation.order_by(value, ['name', 'recipe_count', 'self_recipe_count'])

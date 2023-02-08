@@ -298,3 +298,96 @@ class TestIngredientCUD(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Ingredient.objects.filter(pk=ingredient.pk).exists())
         self.assertTrue(Recipe.objects.filter(pk=recipe.pk).exists())
+
+
+@override_settings(DEFAULT_FILE_STORAGE=media_utils.TEST_DEFAULT_FILE_STORAGE)
+@override_settings(MEDIA_ROOT=media_utils.TEST_MEDIA_ROOT)
+@override_settings(APP_ADMIN_CODE='TEST_ADMIN_CODE')
+class TestIngredientInventory(APITestCase):    
+    def setUp(self):
+        self.user = User.objects.create(email="user@example.com", name="Regular User")
+        self.user_token = security.generate_token(self.user)
+        self.ingredient = Ingredient.objects.create(name="Ingredient", unit="kg", photo=media_utils.generate_test_image())
+        self.ingredient2 = Ingredient.objects.create(name="Ingredient 2", unit="kg", photo=media_utils.generate_test_image())
+
+    def tearDown(self):
+        media_utils.delete_test_media()
+
+    def test_add_ingredient_to_inventory(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(
+            f'/ingredient/inventory/{self.ingredient.pk}', 
+            data={'amount': 2.5}, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(UserIngredient.objects.filter(user=self.user, ingredient=self.ingredient).exists())
+        user_ingredient = UserIngredient.objects.get(user=self.user, ingredient=self.ingredient)
+        self.assertEqual(user_ingredient.amount, Decimal("2.5"))
+
+    def test_update_ingredient_in_inventory(self):
+        UserIngredient.objects.create(user=self.user, ingredient=self.ingredient, amount=1.0)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(
+            f'/ingredient/inventory/{self.ingredient.pk}', 
+            data={'amount': "1.5"}, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        user_ingredient = UserIngredient.objects.get(user=self.user, ingredient=self.ingredient)
+        self.assertEqual(user_ingredient.amount, Decimal("2.5"))
+
+    def test_delete_ingredient_from_inventory(self):
+        UserIngredient.objects.create(user=self.user, ingredient=self.ingredient, amount=1.0)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.delete(f'/ingredient/inventory/{self.ingredient.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(UserIngredient.objects.filter(user=self.user, ingredient=self.ingredient).exists())
+
+    def test_add_negative_amount_to_inventory(self):
+        UserIngredient.objects.create(user=self.user, ingredient=self.ingredient, amount=1.0)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(
+            f'/ingredient/inventory/{self.ingredient.pk}', 
+            data={"amount": -0.6}, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        user_ingredient = UserIngredient.objects.get(user=self.user, ingredient=self.ingredient)
+        self.assertEqual(user_ingredient.amount, Decimal("0.4"))
+        response: Response = self.client.post(
+            f'/ingredient/inventory/{self.ingredient.pk}', 
+            data={"amount": "-0.4"}, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(UserIngredient.objects.filter(user=self.user, ingredient=self.ingredient).exists())
+
+    @patch('recipeAPIapp.apps.Config.ContentLimits.inventory_limit', 1)
+    def test_inventory_limit_exceeded(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(
+            f'/ingredient/inventory/{self.ingredient.pk}', 
+            data={"amount": 0.50}, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(UserIngredient.objects.filter(user=self.user, ingredient=self.ingredient).exists())
+        response: Response = self.client.post(
+            f'/ingredient/inventory/{self.ingredient2.pk}', 
+            data={"amount": 0.50}, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['detail'], {'non_field_errors': ['inventory limit exceeded.']})
+        self.assertFalse(UserIngredient.objects.filter(user=self.user, ingredient=self.ingredient2).exists())
+
+    def test_add_ingredient_unauthorized(self):
+        response: Response = self.client.post(
+            f'/ingredient/inventory/{self.ingredient.pk}', 
+            data={'amount': 2.5}, format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        unverified_user = User.objects.create(email="unverified@example.com", name="Unverified User", vcode="NotNone")
+        unverified_token = security.generate_token(unverified_user)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {unverified_token}'}
+        response: Response = self.client.post(
+            f'/ingredient/inventory/{self.ingredient.pk}', 
+            data={'amount': 2.5}, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertFalse(UserIngredient.objects.filter(user=unverified_user, ingredient=self.ingredient).exists())

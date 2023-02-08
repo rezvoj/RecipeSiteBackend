@@ -440,3 +440,123 @@ class TestCategoryFilter(APITestCase):
         self.assertEqual(response.data['results'][0]['favoured'], None)
         self.assertEqual(response.data['results'][1]['id'], self.main_courses.pk)
         self.assertEqual(response.data['results'][2]['id'], self.salads.pk)
+
+
+
+@override_settings(DEFAULT_FILE_STORAGE=media_utils.TEST_DEFAULT_FILE_STORAGE)
+@override_settings(MEDIA_ROOT=media_utils.TEST_MEDIA_ROOT)
+@override_settings(APP_ADMIN_CODE='TEST_ADMIN_CODE')
+class TestIngredientFilter(APITestCase):
+
+    def setUp(self):
+        self.test_user = User.objects.create(email="testuser@example.com", name="Test User")
+        self.user_token = security.generate_token(self.test_user)
+        self.other_user = User.objects.create(email="testuser2@example.com", name="Test User2")
+        self.recipe1 = Recipe.objects.create(
+            user=self.test_user, name="Tomato Soup", title="Delicious Tomato Soup",
+            submit_status=SubmitStatuses.ACCEPTED, prep_time=30, calories=150
+        )
+        self.recipe2 = Recipe.objects.create(
+            user=self.test_user, name="Cheese Pizza", title="Homemade Cheese Pizza",
+            submit_status=SubmitStatuses.ACCEPTED, prep_time=60, calories=400,
+            created_at=utc_now() - timedelta(days=10)
+        )
+        self.recipe3 = Recipe.objects.create(
+            user=self.other_user, name="Caprese Salad", title="Caprese Salad with Basil",
+            submit_status=SubmitStatuses.ACCEPTED, prep_time=10, calories=200
+        )
+        self.recipe4 = Recipe.objects.create(
+            user=self.other_user, name="Grilled Chicken", title="Juicy Grilled Chicken",
+            submit_status=SubmitStatuses.ACCEPTED, prep_time=60, calories=400,
+            created_at=utc_now() - timedelta(days=10)
+        )
+
+        """ Ingredient 1: Tomato, used in 1 recipe (1 new) (1 test_user), owned """
+        self.tomato = Ingredient.objects.create(
+            name="Tomato", unit="kg", about="Fresh tomatoes", 
+            photo=media_utils.generate_test_image()
+        )
+        RecipeIngredient.objects.create(recipe=self.recipe1, ingredient=self.tomato, amount=0.5)
+        UserIngredient.objects.create(user=self.test_user, ingredient=self.tomato, amount=1.0)
+
+        """ Ingredient 2: Cheese, used in 2 recipes (1 new) (2 test_user), owned """
+        self.cheese = Ingredient.objects.create(
+            name="Cheese", unit="kg", about="Creamy cheese", 
+            photo=media_utils.generate_test_image()
+        )
+        RecipeIngredient.objects.create(recipe=self.recipe1, ingredient=self.cheese, amount=0.5)
+        RecipeIngredient.objects.create(recipe=self.recipe2, ingredient=self.cheese, amount=0.4)
+        UserIngredient.objects.create(user=self.test_user, ingredient=self.cheese, amount=0.6)
+
+        """ Ingredient 3: Basil, used in 2 recipes (2 new) (1 test_user) """
+        self.basil = Ingredient.objects.create(
+            name="Basil", unit="g", about="Fresh basil leaves", 
+            photo=media_utils.generate_test_image()
+        )
+        RecipeIngredient.objects.create(recipe=self.recipe1, ingredient=self.basil, amount=0.05)
+        RecipeIngredient.objects.create(recipe=self.recipe3, ingredient=self.basil, amount=0.1)
+        UserIngredient.objects.create(user=self.other_user, ingredient=self.basil, amount=0.2)
+
+        """ Ingredient 4: Garlic, used in 2 recipes (1 new) (2 test_user) """
+        self.garlic = Ingredient.objects.create(
+            name="Garlic", unit="cloves", about="Fresh garlic", 
+            photo=media_utils.generate_test_image()
+        )
+        RecipeIngredient.objects.create(recipe=self.recipe1, ingredient=self.garlic, amount=2.0)
+        RecipeIngredient.objects.create(recipe=self.recipe2, ingredient=self.garlic, amount=1.0)
+
+        """ Ingredient 5: Onion, used in 1 recipe (0 new) (0 test_user), owned """
+        self.onion = Ingredient.objects.create(
+            name="Onion", unit="kg", about="Fresh onions", 
+            photo=media_utils.generate_test_image()
+        )
+        RecipeIngredient.objects.create(recipe=self.recipe4, ingredient=self.onion, amount=0.8)
+        UserIngredient.objects.create(user=self.test_user, ingredient=self.onion, amount=2.0)
+
+
+    def tearDown(self):
+        media_utils.delete_test_media()
+
+    
+    def test_user_filter(self):
+        headers = {'HTTP_AUTHORIZATION': f"Bearer {self.user_token}"}
+        params = {
+            'owned': True,
+            'used': True,
+            'order_by': ['-self_recipe_count', '-name'],
+            'page': 1, 'page_size': 5
+        }
+        response: Response = self.client.get(f'/ingredient/filter/paged', params, format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 2)
+        expected_cheese = {
+            'id': self.cheese.pk, 'name': 'Cheese',
+            'photo': self.cheese.photo.url, 
+            'unit': 'kg', 'about': 'Creamy cheese', 
+            'recipe_count': 2, 'self_recipe_count': 2, 
+            'self_amount': '0.60'
+        }
+        self.assertEqual(response.data['results'][0], expected_cheese)
+        self.assertEqual(response.data['results'][1]['id'], self.tomato.pk)
+
+
+    def test_anon_filter(self):
+        headers = {}
+        params = {
+            'owned': True, 'order_time_window': 5,
+            'order_by': ['-recipe_count', 'name'],
+            'page': 1, 'page_size': 5
+        }
+        response: Response = self.client.get(f'/ingredient/filter/paged', params, format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 5)
+        self.assertEqual(response.data['results'][0]['id'], self.basil.pk)
+        self.assertEqual(response.data['results'][1]['id'], self.cheese.pk)
+        self.assertEqual(response.data['results'][2]['id'], self.garlic.pk)
+        self.assertEqual(response.data['results'][3]['id'], self.tomato.pk)
+        self.assertEqual(response.data['results'][4]['id'], self.onion.pk)
+        params = {'search_string': "tomato", 'page': 1, 'page_size': 5}
+        response: Response = self.client.get(f'/ingredient/filter/paged', params, format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['id'], self.tomato.pk)

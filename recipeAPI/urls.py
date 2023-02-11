@@ -3,6 +3,7 @@ from django.conf import settings
 import recipeAPIapp.views.user as UserViews
 import recipeAPIapp.views.auth as AuthViews
 import recipeAPIapp.views.categorical as CategoricalViews
+import recipeAPIapp.views.recipe as RecipeViews
 import recipeAPIapp.views.media as MediaViews
 
 
@@ -34,6 +35,9 @@ urlpatterns = [
     path('ingredient/<int:ingredient_id>', CategoricalViews.IngredientView.as_view()),
     path('ingredient/inventory/<int:ingredient_id>', CategoricalViews.IngredientInventoryView.as_view()),
     path('ingredient/filter/paged', CategoricalViews.IngredientFilterView.as_view()),
+
+    path('recipe', RecipeViews.RecipeView.as_view()),
+    path('recipe/<int:recipe_id>', RecipeViews.RecipeView.as_view()),
 
 ]
 

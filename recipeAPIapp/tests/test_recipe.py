@@ -159,3 +159,122 @@ class TestRecipeCUD(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertFalse(Recipe.objects.filter(name='New Recipe').exists())
+
+
+@override_settings(DEFAULT_FILE_STORAGE=media_utils.TEST_DEFAULT_FILE_STORAGE)
+@override_settings(MEDIA_ROOT=media_utils.TEST_MEDIA_ROOT)
+class TestRecipePhotoCUD(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create(email="user@example.com", name="Regular User")
+        self.user_token = security.generate_token(self.user)
+        self.moderator = User.objects.create(email="moderator@example.com", name="Moderator", moderator=True)
+        self.moderator_token = security.generate_token(self.moderator)
+        self.recipe = Recipe.objects.create(
+            name="Test Recipe", title="Test Recipe Title",
+            user=self.user, prep_time=30, calories=200,
+            submit_status=SubmitStatuses.SUBMITTED
+        )
+
+    def tearDown(self):
+        media_utils.delete_test_media()
+
+    def test_create_recipe_photo_with_number_adjustment(self):
+        photo1 = RecipePhoto.objects.create(recipe=self.recipe, photo=media_utils.generate_test_image(), number=1)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(
+            f'/recipe/photo/{self.recipe.pk}',
+            data={'photo': media_utils.generate_test_image(), 'number': 1},
+            format='multipart', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        photo1.refresh_from_db()
+        self.assertEqual(photo1.number, 2)
+        new_photo = RecipePhoto.objects.get(recipe=self.recipe, number=1)
+        self.assertTrue(new_photo.photo)
+        self.recipe.refresh_from_db()
+        self.assertEqual(self.recipe.submit_status, SubmitStatuses.UNSUBMITTED)
+
+    @patch('recipeAPIapp.apps.Config.PerRecipeLimits.photos', 2)
+    def test_create_recipe_photo_limit_exceeded(self):
+        RecipePhoto.objects.create(recipe=self.recipe, photo=media_utils.generate_test_image(), number=1)
+        RecipePhoto.objects.create(recipe=self.recipe, photo=media_utils.generate_test_image(), number=2)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(
+            f'/recipe/photo/{self.recipe.pk}',
+            data={'photo': media_utils.generate_test_image(), 'number': 3},
+            format='multipart', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, {'detail': {'non_field_errors': ['photo limit exceeded.']}})
+
+    def test_update_recipe_photo_with_number_adjustment(self):
+        photos = [
+            RecipePhoto.objects.create(
+                recipe=self.recipe, number=idx,
+                photo=media_utils.generate_test_image()
+            ) for idx in range(1, 7)
+        ]
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.put(
+            f'/recipe/photo/{photos[0].pk}',
+            data={'number': 4}, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.recipe.refresh_from_db()
+        self.assertEqual(self.recipe.submit_status, SubmitStatuses.UNSUBMITTED)
+        for photo in photos:
+            photo.refresh_from_db()
+        for photo, position in zip(photos, [4, 1, 2, 3, 5, 6]):
+            self.assertEqual(photo.number, position)
+        response: Response = self.client.put(
+            f'/recipe/photo/{photos[5].pk}',
+            data={'number': 2}, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        for photo in photos:
+            photo.refresh_from_db()
+        for photo, position in zip(photos, [5, 1, 3, 4, 6, 2]):
+            self.assertEqual(photo.number, position)
+
+    def test_delete_recipe_photo_and_adjust_numbers(self):
+        RecipePhoto.objects.create(recipe=self.recipe, photo=media_utils.generate_test_image(), number=1)
+        photo2 = RecipePhoto.objects.create(recipe=self.recipe, photo=media_utils.generate_test_image(), number=2)
+        photo3 = RecipePhoto.objects.create(recipe=self.recipe, photo=media_utils.generate_test_image(), number=3)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.delete(f'/recipe/photo/{photo2.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        photo3.refresh_from_db()
+        self.assertEqual(photo3.number, 2)
+        self.assertFalse(RecipePhoto.objects.filter(pk=photo2.pk).exists())
+        self.recipe.refresh_from_db()
+        self.assertEqual(self.recipe.submit_status, SubmitStatuses.UNSUBMITTED)
+
+    def test_create_recipe_photo_unauthorized(self):
+        self.user.vcode = "NotNone"
+        self.user.save()
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(
+            f'/recipe/photo/{self.recipe.pk}',
+            data={'photo': media_utils.generate_test_image(), 'number': 1},
+            format='multipart', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertFalse(RecipePhoto.objects.filter(recipe=self.recipe).exists())
+
+    def test_update_recipe_photo_unauthorized(self):
+        photo = RecipePhoto.objects.create(recipe=self.recipe, photo=media_utils.generate_test_image(), number=1)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.put(
+            f'/recipe/photo/{photo.pk}',
+            data={'number': 2}, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        photo.refresh_from_db()
+        self.assertEqual(photo.number, 1)
+
+    def test_delete_recipe_photo_unauthorized(self):
+        photo = RecipePhoto.objects.create(recipe=self.recipe, photo=media_utils.generate_test_image(), number=1)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.delete(f'/recipe/photo/{photo.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(RecipePhoto.objects.filter(pk=photo.pk).exists())

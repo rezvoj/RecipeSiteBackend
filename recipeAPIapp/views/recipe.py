@@ -55,3 +55,37 @@ class RecipeView(APIView):
         recipe.delete()
         log.info(f"Recipe deleted - recipe {recipe_id}, user {user.pk}")
         return Response({}, status=status.HTTP_204_NO_CONTENT)
+
+
+class RecipePhotoView(APIView):
+    @transaction.atomic
+    def post(self, request: Request, id: int):
+        user: User = permission.verified(request)
+        recipe: Recipe = get(Recipe, pk=id, user=user)
+        serializer = serializers.RecipePhotoCreateSerializer(recipe=recipe, data=request.data)
+        validation.serializer(serializer).save()
+        log.info(f"Recipe updated - recipe {recipe.pk}, user {user.pk}")
+        return Response({}, status=status.HTTP_201_CREATED)
+
+    @transaction.atomic
+    def put(self, request: Request, id: int):
+        user: User = permission.verified(request)
+        photo: RecipePhoto = get(RecipePhoto, pk=id, recipe__user=user)
+        serializer = serializers.RecipePhotoUpdateSerializer(instance=photo, data=request.data, partial=True)
+        validation.serializer(serializer).save()
+        log.info(f"Recipe updated - recipe {photo.recipe.pk}, user {user.pk}")
+        return Response({}, status=status.HTTP_200_OK)
+
+    @transaction.atomic
+    def delete(self, request: Request, id: int):
+        user: User = permission.verified(request)
+        photo: RecipePhoto = get(RecipePhoto, pk=id, recipe__user=user)
+        for phto in RecipePhoto.objects.filter(recipe=photo.recipe, number__gt=photo.number):
+            phto.number -= 1
+            phto.save()
+        photo.delete()
+        photo.recipe.submit_status = Statuses.UNSUBMITTED
+        photo.recipe.deny_message = None
+        photo.recipe.save()
+        log.info(f"Recipe updated - recipe {photo.recipe.pk}, user {user.pk}")
+        return Response({}, status=status.HTTP_204_NO_CONTENT)

@@ -96,3 +96,62 @@ class RecipePhotoUpdateSerializer(serializers.ModelSerializer):
         instance.recipe.deny_message = None
         instance.recipe.save()
         return super().update(instance, validated_data)
+
+
+class RecipeInstructionCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RecipeInstruction
+        fields = ('photo', 'number', 'title', 'content')
+
+    def __init__(self, *args, recipe: Recipe, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.recipe = recipe
+
+    def validate_photo(self, value):
+        return validation.photo(value)
+
+    def validate(self, data):
+        data = super().validate(data)
+        self.instruction_count = RecipeInstruction.objects.filter(recipe=self.recipe).count()
+        if Config.PerRecipeLimits.instructions <= self.instruction_count:
+            raise serializers.ValidationError("instruction limit exceeded.")
+        return data
+
+    def create(self, validated_data):
+        validated_data['recipe'] = self.recipe
+        validated_data['number'] = min(self.instruction_count + 1, validated_data['number'])
+        range = {'number__gte': validated_data['number']}
+        for instruction in RecipeInstruction.objects.filter(recipe=self.recipe, **range):
+            instruction.number += 1
+            instruction.save()
+        self.recipe.submit_status = Statuses.UNSUBMITTED
+        self.recipe.deny_message = None
+        self.recipe.save()
+        return super().create(validated_data)
+
+
+class RecipeInstructionUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RecipeInstruction
+        fields = ('photo', 'number', 'title', 'content')
+
+    def validate_photo(self, value):
+        return validation.photo(value)
+
+    def update(self, instance: RecipeInstruction, validated_data):
+        if 'number' in validated_data and validated_data['number'] != instance.number:
+            instruction_count = RecipeInstruction.objects.filter(recipe=instance.recipe).count()
+            validated_data['number'] = min(instruction_count, validated_data['number'])
+            if validated_data['number'] > instance.number:
+                range = {'number__gt': instance.number, 'number__lte': validated_data['number']}
+                movement = -1
+            else:
+                range = {'number__gte': validated_data['number'], 'number__lt': instance.number}
+                movement = 1
+            for instruction in RecipeInstruction.objects.filter(recipe=instance.recipe, **range):
+                instruction.number += movement
+                instruction.save()
+        instance.recipe.submit_status = Statuses.UNSUBMITTED
+        instance.recipe.deny_message = None
+        instance.recipe.save()
+        return super().update(instance, validated_data)

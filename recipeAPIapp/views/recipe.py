@@ -89,3 +89,37 @@ class RecipePhotoView(APIView):
         photo.recipe.save()
         log.info(f"Recipe updated - recipe {photo.recipe.pk}, user {user.pk}")
         return Response({}, status=status.HTTP_204_NO_CONTENT)
+
+
+class RecipeInstructionView(APIView):
+    @transaction.atomic
+    def post(self, request: Request, id: int):
+        user: User = permission.verified(request)
+        recipe: Recipe = get(Recipe, pk=id, user=user)
+        serializer = serializers.RecipeInstructionCreateSerializer(recipe=recipe, data=request.data)
+        validation.serializer(serializer).save()
+        log.info(f"Recipe updated - recipe {recipe.pk}, user {user.pk}")
+        return Response({}, status=status.HTTP_201_CREATED)
+
+    @transaction.atomic
+    def put(self, request: Request, id: int):
+        user: User = permission.verified(request)
+        instruction: RecipeInstruction = get(RecipeInstruction, pk=id, recipe__user=user)
+        serializer = serializers.RecipeInstructionUpdateSerializer(instance=instruction, data=request.data, partial=True)
+        validation.serializer(serializer).save()
+        log.info(f"Recipe updated - recipe {instruction.recipe.pk}, user {user.pk}")
+        return Response({}, status=status.HTTP_200_OK)
+
+    @transaction.atomic
+    def delete(self, request: Request, id: int):
+        user: User = permission.verified(request)
+        instruction: RecipeInstruction = get(RecipeInstruction, pk=id, recipe__user=user)
+        for instr in RecipeInstruction.objects.filter(recipe=instruction.recipe, number__gt=instruction.number):
+            instr.number -= 1
+            instr.save()
+        instruction.delete()
+        instruction.recipe.submit_status = Statuses.UNSUBMITTED
+        instruction.recipe.deny_message = None
+        instruction.recipe.save()
+        log.info(f"Recipe updated - recipe {instruction.recipe.pk}, user {user.pk}")
+        return Response({}, status=status.HTTP_204_NO_CONTENT)

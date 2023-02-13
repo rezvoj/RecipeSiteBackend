@@ -278,3 +278,152 @@ class TestRecipePhotoCUD(APITestCase):
         response: Response = self.client.delete(f'/recipe/photo/{photo.pk}', format='json', **headers)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertTrue(RecipePhoto.objects.filter(pk=photo.pk).exists())
+
+
+@override_settings(DEFAULT_FILE_STORAGE=media_utils.TEST_DEFAULT_FILE_STORAGE)
+@override_settings(MEDIA_ROOT=media_utils.TEST_MEDIA_ROOT)
+class TestRecipeInstructionCUD(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create(email="user@example.com", name="Regular User")
+        self.user_token = security.generate_token(self.user)
+        self.moderator = User.objects.create(email="moderator@example.com", name="Moderator", moderator=True)
+        self.moderator_token = security.generate_token(self.moderator)
+        self.recipe = Recipe.objects.create(
+            name="Test Recipe", title="Test Recipe Title",
+            user=self.user, prep_time=30, calories=200,
+            submit_status=SubmitStatuses.SUBMITTED
+        )
+
+    def tearDown(self):
+        media_utils.delete_test_media()
+
+    def test_create_recipe_instruction_with_number_adjustment(self):
+        instruction1 = RecipeInstruction.objects.create(
+            recipe=self.recipe, number=1, title="Instruction 01", 
+            content="This is the content of instruction 01."
+        )
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(
+            f'/recipe/instruction/{self.recipe.pk}', data={
+                'title': "Instruction 02", 'number': 1,
+                'content': "This is the content of instruction 02."
+            }, format='multipart', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        instruction1.refresh_from_db()
+        self.assertEqual(instruction1.number, 2)
+        new_instruction = RecipeInstruction.objects.get(recipe=self.recipe, number=1)
+        self.assertEqual(new_instruction.title, "Instruction 02")
+        self.assertEqual(new_instruction.content, "This is the content of instruction 02.")
+        self.recipe.refresh_from_db()
+        self.assertEqual(self.recipe.submit_status, SubmitStatuses.UNSUBMITTED)
+
+    @patch('recipeAPIapp.apps.Config.PerRecipeLimits.instructions', 2)
+    def test_create_recipe_instruction_limit_exceeded(self):
+        RecipeInstruction.objects.create(
+            recipe=self.recipe, number=1, title="Instruction 01", 
+            content="This is the content of instruction 01."
+        )
+        RecipeInstruction.objects.create(
+            recipe=self.recipe, number=2, title="Instruction 02", 
+            content="This is the content of instruction 02."
+        )
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(
+            f'/recipe/instruction/{self.recipe.pk}', data={
+                'title': "Instruction 03", 'number': 3, 
+                'content': "This is the content of instruction 03."
+            }, format='multipart', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, {'detail': {'non_field_errors': ['instruction limit exceeded.']}})
+
+    def test_update_recipe_instruction_with_number_adjustment(self):
+        instructions = [
+            RecipeInstruction.objects.create(
+                recipe=self.recipe, number=idx, title=f"Instruction {idx:02}", 
+                content=f"This is the content of instruction {idx:02}."
+            ) for idx in range(1, 7)
+        ]
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.put(
+            f'/recipe/instruction/{instructions[3].pk}',
+            data={'number': 1}, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.recipe.refresh_from_db()
+        self.assertEqual(self.recipe.submit_status, SubmitStatuses.UNSUBMITTED)
+        for instruction in instructions:
+            instruction.refresh_from_db()
+        for instruction, position in zip(instructions, [2, 3, 4, 1, 5, 6]):
+            self.assertEqual(instruction.number, position)
+        response: Response = self.client.put(
+            f'/recipe/instruction/{instructions[0].pk}',
+            data={'number': 5}, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        for instruction in instructions:
+            instruction.refresh_from_db()
+        for instruction, position in zip(instructions, [5, 2, 3, 1, 4, 6]):
+            self.assertEqual(instruction.number, position)
+
+    def test_delete_recipe_instruction_and_adjust_numbers(self):
+        instruction1 = RecipeInstruction.objects.create(
+            recipe=self.recipe, number=1, title="Instruction 01", 
+            content="This is the content of instruction 01."
+        )
+        instruction2 = RecipeInstruction.objects.create(
+            recipe=self.recipe, number=2, title="Instruction 02", 
+            content="This is the content of instruction 02."
+        )
+        instruction3 = RecipeInstruction.objects.create(
+            recipe=self.recipe, number=3, title="Instruction 03", 
+            content="This is the content of instruction 03."
+        )
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.delete(f'/recipe/instruction/{instruction1.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        instruction2.refresh_from_db()
+        instruction3.refresh_from_db()
+        self.assertEqual(instruction2.number, 1)
+        self.assertEqual(instruction3.number, 2)
+        self.assertFalse(RecipeInstruction.objects.filter(pk=instruction1.pk).exists())
+        self.recipe.refresh_from_db()
+        self.assertEqual(self.recipe.submit_status, SubmitStatuses.UNSUBMITTED)
+
+    def test_create_recipe_instruction_unauthorized(self):
+        self.user.vcode = "NotNone"
+        self.user.save()
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(
+            f'/recipe/instruction/{self.recipe.pk}', data={
+                'title': "Instruction 01", 'number': 1, 
+                'content': "This is the content of instruction 01."
+            }, format='multipart', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertFalse(RecipeInstruction.objects.filter(recipe=self.recipe).exists())
+
+    def test_update_recipe_instruction_unauthorized(self):
+        instruction = RecipeInstruction.objects.create(
+            recipe=self.recipe, number=1, title="Instruction 01", 
+            content="This is the content of instruction 01."
+        )
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.put(
+            f'/recipe/instruction/{instruction.pk}',
+            data={'number': 2}, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        instruction.refresh_from_db()
+        self.assertEqual(instruction.number, 1)
+
+    def test_delete_recipe_instruction_unauthorized(self):
+        instruction = RecipeInstruction.objects.create(
+            recipe=self.recipe, number=1, title="Instruction 01", 
+            content="This is the content of instruction 01."
+        )
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.delete(f'/recipe/instruction/{instruction.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(RecipeInstruction.objects.filter(pk=instruction.pk).exists())

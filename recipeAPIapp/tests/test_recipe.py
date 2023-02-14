@@ -427,3 +427,118 @@ class TestRecipeInstructionCUD(APITestCase):
         response: Response = self.client.delete(f'/recipe/instruction/{instruction.pk}', format='json', **headers)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertTrue(RecipeInstruction.objects.filter(pk=instruction.pk).exists())
+
+
+@override_settings(DEFAULT_FILE_STORAGE=media_utils.TEST_DEFAULT_FILE_STORAGE)
+@override_settings(MEDIA_ROOT=media_utils.TEST_MEDIA_ROOT)
+class TestRecipeIngredients(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create(email="user@example.com", name="Regular User")
+        self.user_token = security.generate_token(self.user)
+        self.moderator = User.objects.create(email="moderator@example.com", name="Moderator", moderator=True)
+        self.moderator_token = security.generate_token(self.moderator)
+        self.recipe = Recipe.objects.create(
+            name="Test Recipe", title="Test Recipe Title",
+            user=self.user, prep_time=30, calories=200,
+            submit_status=SubmitStatuses.SUBMITTED
+        )
+        self.ingredient = Ingredient.objects.create(name="Ingredient", unit="kg", photo=media_utils.generate_test_image())
+        self.ingredient2 = Ingredient.objects.create(name="Ingredient 2", unit="kg", photo=media_utils.generate_test_image())
+
+    def tearDown(self):
+        media_utils.delete_test_media()
+
+    def test_add_ingredient_to_recipe(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(
+            f'/recipe/ingredient/{self.recipe.pk}/{self.ingredient.pk}', 
+            data={'amount': 4.27}, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(RecipeIngredient.objects.filter(recipe=self.recipe, ingredient=self.ingredient).exists())
+        recipe_ingredient = RecipeIngredient.objects.get(recipe=self.recipe, ingredient=self.ingredient)
+        self.assertEqual(recipe_ingredient.amount, Decimal("4.27"))
+        self.recipe.refresh_from_db()
+        self.assertEqual(self.recipe.submit_status, SubmitStatuses.UNSUBMITTED)
+
+    def test_update_ingredient_in_recipe(self):
+        RecipeIngredient.objects.create(recipe=self.recipe, ingredient=self.ingredient, amount=1.0)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(
+            f'/recipe/ingredient/{self.recipe.pk}/{self.ingredient.pk}', 
+            data={'amount': "0.75"}, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        recipe_ingredient = RecipeIngredient.objects.get(recipe=self.recipe, ingredient=self.ingredient)
+        self.assertEqual(recipe_ingredient.amount, Decimal("1.75"))
+        self.recipe.refresh_from_db()
+        self.assertEqual(self.recipe.submit_status, SubmitStatuses.UNSUBMITTED)
+
+    def test_delete_ingredient_from_recipe(self):
+        RecipeIngredient.objects.create(recipe=self.recipe, ingredient=self.ingredient, amount=1.0)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.delete(f'/recipe/ingredient/{self.recipe.pk}/{self.ingredient.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(RecipeIngredient.objects.filter(recipe=self.recipe, ingredient=self.ingredient).exists())
+        self.recipe.refresh_from_db()
+        self.assertEqual(self.recipe.submit_status, SubmitStatuses.UNSUBMITTED)
+
+    def test_add_negative_amount_to_recipe(self):
+        RecipeIngredient.objects.create(recipe=self.recipe, ingredient=self.ingredient, amount=1.0)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(
+            f'/recipe/ingredient/{self.recipe.pk}/{self.ingredient.pk}', 
+            data={"amount": -0.7}, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        recipe_ingredient = RecipeIngredient.objects.get(recipe=self.recipe, ingredient=self.ingredient)
+        self.assertEqual(recipe_ingredient.amount, Decimal("0.3"))
+        response: Response = self.client.post(
+            f'/recipe/ingredient/{self.recipe.pk}/{self.ingredient.pk}', 
+            data={"amount": "-0.3"}, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(RecipeIngredient.objects.filter(recipe=self.recipe, ingredient=self.ingredient).exists())
+        self.recipe.refresh_from_db()
+        self.assertEqual(self.recipe.submit_status, SubmitStatuses.UNSUBMITTED)
+
+    @patch('recipeAPIapp.apps.Config.PerRecipeLimits.ingredients', 1)
+    def test_recipe_ingredient_limit_exceeded(self):
+        RecipeIngredient.objects.create(recipe=self.recipe, ingredient=self.ingredient, amount=1.0)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(
+            f'/recipe/ingredient/{self.recipe.pk}/{self.ingredient2.pk}', 
+            data={"amount": 0.50}, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['detail'], {'non_field_errors': ['ingredient limit exceeded.']})
+        self.assertFalse(RecipeIngredient.objects.filter(recipe=self.recipe, ingredient=self.ingredient2).exists())
+
+    def test_add_ingredient_to_recipe_unauthorized(self):
+        self.user.vcode = "NotNone"
+        self.user.save()
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(
+            f'/recipe/ingredient/{self.recipe.pk}/{self.ingredient.pk}', 
+            data={'amount': 1.0}, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertFalse(RecipeIngredient.objects.filter(recipe=self.recipe).exists())
+
+    def test_update_ingredient_in_recipe_unauthorized(self):
+        recipe_ingredient = RecipeIngredient.objects.create(recipe=self.recipe, ingredient=self.ingredient, amount=1.0)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.post(
+            f'/recipe/ingredient/{self.recipe.pk}/{self.ingredient.pk}', 
+            data={'amount': 1.0}, format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        recipe_ingredient.refresh_from_db()
+        self.assertEqual(recipe_ingredient.amount, Decimal("1.0"))
+
+    def test_delete_ingredient_from_recipe_unauthorized(self):
+        RecipeIngredient.objects.create(recipe=self.recipe, ingredient=self.ingredient, amount=1.0)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.delete(f'/recipe/ingredient/{self.recipe.pk}/{self.ingredient.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(RecipeIngredient.objects.filter(recipe=self.recipe, ingredient=self.ingredient).exists())

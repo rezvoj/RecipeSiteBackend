@@ -123,3 +123,46 @@ class RecipeInstructionView(APIView):
         instruction.recipe.save()
         log.info(f"Recipe updated - recipe {instruction.recipe.pk}, user {user.pk}")
         return Response({}, status=status.HTTP_204_NO_CONTENT)
+
+
+class RecipeIngredientView(APIView):
+    @transaction.atomic
+    def post(self, request: Request, recipe_id: int, ingredient_id: int):
+        user: User = permission.verified(request)
+        recipe: Recipe = get(Recipe, pk=recipe_id, user=user)
+        ingredient: Ingredient = get(Ingredient, pk=ingredient_id)
+        serializer = categorical_serializers.AmountSerializer(data=request.data)
+        vdata = validation.serializer(serializer).validated_data
+        try:
+            recipe_ingredient = RecipeIngredient.objects.get(recipe=recipe, ingredient=ingredient)
+            recipe_ingredient.amount += vdata['amount']
+            if recipe_ingredient.amount <= 0:
+                recipe_ingredient.delete()    
+                response_status = status.HTTP_204_NO_CONTENT
+            else:
+                data = {'amount': recipe_ingredient.amount}
+                serializer = categorical_serializers.AmountValueSerializer(data=data)
+                validation.serializer(serializer)
+                recipe_ingredient.save()
+                response_status = status.HTTP_200_OK
+        except RecipeIngredient.DoesNotExist:
+            serializer = serializers.RecipeIngredientSerializer(recipe=recipe, ingredient=ingredient, data=vdata)
+            validation.serializer(serializer).save()
+            response_status = status.HTTP_201_CREATED
+        recipe.submit_status = Statuses.UNSUBMITTED
+        recipe.deny_message = None
+        recipe.save()
+        log.info(f"Recipe updated - recipe {recipe.pk}, user {user.pk}")
+        return Response({}, status=response_status)
+
+    @transaction.atomic
+    def delete(self, request: Request, recipe_id: int, ingredient_id: int):
+        user: User = permission.verified(request)
+        recipe: Recipe = get(Recipe, pk=recipe_id, user=user)
+        recipe_ingredient: RecipeIngredient = get(RecipeIngredient, recipe=recipe, ingredient=ingredient_id)
+        recipe_ingredient.delete()
+        recipe.submit_status = Statuses.UNSUBMITTED
+        recipe.deny_message = None
+        recipe.save()
+        log.info(f"Recipe updated - recipe {recipe.pk}, user {user.pk}")
+        return Response({}, status=status.HTTP_204_NO_CONTENT)

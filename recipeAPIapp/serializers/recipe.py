@@ -155,3 +155,26 @@ class RecipeInstructionUpdateSerializer(serializers.ModelSerializer):
         instance.recipe.deny_message = None
         instance.recipe.save()
         return super().update(instance, validated_data)
+
+
+class RecipeIngredientSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RecipeIngredient
+        fields = ('amount',)
+
+    def __init__(self, *args, recipe: Recipe, ingredient: Ingredient, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.recipe = recipe
+        self.ingredient = ingredient
+
+    def validate(self, data):
+        data = super().validate(data)
+        ingredient_count = RecipeIngredient.objects.filter(recipe=self.recipe).count()
+        if Config.PerRecipeLimits.ingredients <= ingredient_count:
+            raise serializers.ValidationError("ingredient limit exceeded.")
+        return data
+    
+    def create(self, validated_data):
+        validated_data['recipe'] = self.recipe
+        validated_data['ingredient'] = self.ingredient
+        return super().create(validated_data)

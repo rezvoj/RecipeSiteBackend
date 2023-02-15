@@ -178,3 +178,20 @@ class RecipeIngredientSerializer(serializers.ModelSerializer):
         validated_data['recipe'] = self.recipe
         validated_data['ingredient'] = self.ingredient
         return super().create(validated_data)
+
+
+class RecipeSubmitSerializer(serializers.Serializer):
+    def __init__(self, *args, recipe: Recipe, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.recipe = recipe
+
+    def validate(self, data):
+        if self.recipe.categories.count() == 0:
+            raise serializers.ValidationError("categories can't be empty.")
+        if RecipePhoto.objects.filter(recipe=self.recipe).count() == 0:
+            raise serializers.ValidationError("photos can't be empty.")
+        if RecipeInstruction.objects.filter(recipe=self.recipe).count() == 0:
+            raise serializers.ValidationError("instructions can't be empty.")
+        if RecipeIngredient.objects.filter(recipe=self.recipe).count() == 0:
+            raise serializers.ValidationError("ingredients can't be empty.")
+        return data

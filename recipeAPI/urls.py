@@ -41,6 +41,7 @@ urlpatterns = [
     path('recipe/photo/<int:id>', RecipeViews.RecipePhotoView.as_view()),
     path('recipe/instruction/<int:id>', RecipeViews.RecipeInstructionView.as_view()),
     path('recipe/ingredient/<int:recipe_id>/<int:ingredient_id>', RecipeViews.RecipeIngredientView.as_view()),
+    path('recipe/submit/<int:recipe_id>', RecipeViews.RecipeSubmitView.as_view()),
 
 ]
 

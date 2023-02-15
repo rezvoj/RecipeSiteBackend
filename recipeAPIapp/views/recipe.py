@@ -166,3 +166,16 @@ class RecipeIngredientView(APIView):
         recipe.save()
         log.info(f"Recipe updated - recipe {recipe.pk}, user {user.pk}")
         return Response({}, status=status.HTTP_204_NO_CONTENT)
+
+
+class RecipeSubmitView(APIView):
+    @transaction.atomic
+    def put(self, request: Request, recipe_id: int):
+        user: User = permission.verified(request)
+        recipe: Recipe = get(Recipe, pk=recipe_id, user=user, submit_status=Statuses.UNSUBMITTED)
+        serializer = serializers.RecipeSubmitSerializer(recipe=recipe, data={})
+        validation.serializer(serializer)
+        recipe.submit_status = Statuses.ACCEPTED if user.moderator else Statuses.SUBMITTED
+        recipe.save()
+        log.info(f"Recipe submitted - recipe {recipe.pk}, user {user.pk}")
+        return Response({}, status=status.HTTP_200_OK)

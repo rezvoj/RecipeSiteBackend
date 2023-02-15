@@ -542,3 +542,111 @@ class TestRecipeIngredients(APITestCase):
         response: Response = self.client.delete(f'/recipe/ingredient/{self.recipe.pk}/{self.ingredient.pk}', format='json', **headers)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertTrue(RecipeIngredient.objects.filter(recipe=self.recipe, ingredient=self.ingredient).exists())
+
+
+@override_settings(DEFAULT_FILE_STORAGE=media_utils.TEST_DEFAULT_FILE_STORAGE)
+@override_settings(MEDIA_ROOT=media_utils.TEST_MEDIA_ROOT)
+class TestRecipeSubmission(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create(email="user@example.com", name="Regular User")
+        self.user_token = security.generate_token(self.user)
+        self.moderator = User.objects.create(email="moderator@example.com", name="Moderator", moderator=True)
+        self.moderator_token = security.generate_token(self.moderator)
+        self.category = Category.objects.create(name="Test Category", photo=media_utils.generate_test_image())
+        self.recipe = Recipe.objects.create(
+            name="Test Recipe", title="Test Recipe Title",
+            user=self.user, prep_time=30, calories=200,
+            submit_status=SubmitStatuses.UNSUBMITTED
+        )
+
+    def tearDown(self):
+        media_utils.delete_test_media()
+
+    def test_successful_recipe_submission(self):
+        self.recipe.categories.add(self.category)
+        RecipePhoto.objects.create(recipe=self.recipe, photo=media_utils.generate_test_image(), number=1)
+        RecipeInstruction.objects.create(recipe=self.recipe, number=1, title="Instruction", content="The content of the instruction.")
+        ingredient = Ingredient.objects.create(name="Test Ingredient", unit="kg", photo=media_utils.generate_test_image())
+        RecipeIngredient.objects.create(recipe=self.recipe, ingredient=ingredient, amount=1.0)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.put(f'/recipe/submit/{self.recipe.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.recipe.refresh_from_db()
+        self.assertEqual(self.recipe.submit_status, SubmitStatuses.SUBMITTED)
+
+    def test_successful_recipe_submission_by_moderator(self):
+        recipe_by_moderator = Recipe.objects.create(
+            name="Moderator Recipe", title="Moderator Recipe Title",
+            user=self.moderator, prep_time=30, calories=200,
+            submit_status=SubmitStatuses.UNSUBMITTED
+        )
+        recipe_by_moderator.categories.add(self.category)
+        ingredient = Ingredient.objects.create(name="Test Ingredient", unit="kg", photo=media_utils.generate_test_image())
+        RecipePhoto.objects.create(recipe=recipe_by_moderator, photo=media_utils.generate_test_image(), number=1)
+        RecipeInstruction.objects.create(recipe=recipe_by_moderator, number=1, title="Instruction", content="The content of the instruction.")
+        RecipeIngredient.objects.create(recipe=recipe_by_moderator, ingredient=ingredient, amount=1.0)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.put(f'/recipe/submit/{recipe_by_moderator.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        recipe_by_moderator.refresh_from_db()
+        self.assertEqual(recipe_by_moderator.submit_status, SubmitStatuses.ACCEPTED)
+
+    def test_recipe_submission_with_missing_categories(self):
+        RecipePhoto.objects.create(recipe=self.recipe, photo=media_utils.generate_test_image(), number=1)
+        RecipeInstruction.objects.create(recipe=self.recipe, number=1, title="Instruction", content="The content of the instruction.")
+        ingredient = Ingredient.objects.create(name="Test Ingredient", unit="kg", photo=media_utils.generate_test_image())
+        RecipeIngredient.objects.create(recipe=self.recipe, ingredient=ingredient, amount=1.0)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.put(f'/recipe/submit/{self.recipe.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, {'detail': {'non_field_errors': ["categories can't be empty."]}})
+
+    def test_recipe_submission_with_missing_photos(self):
+        self.recipe.categories.add(self.category)
+        RecipeInstruction.objects.create(recipe=self.recipe, number=1, title="Instruction", content="The content of the instruction.")
+        ingredient = Ingredient.objects.create(name="Test Ingredient", unit="kg", photo=media_utils.generate_test_image())
+        RecipeIngredient.objects.create(recipe=self.recipe, ingredient=ingredient, amount=1.0)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.put(f'/recipe/submit/{self.recipe.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, {'detail': {'non_field_errors': ["photos can't be empty."]}})
+
+    def test_recipe_submission_with_missing_instructions(self):
+        self.recipe.categories.add(self.category)
+        RecipePhoto.objects.create(recipe=self.recipe, photo=media_utils.generate_test_image(), number=1)
+        ingredient = Ingredient.objects.create(name="Test Ingredient", unit="kg", photo=media_utils.generate_test_image())
+        RecipeIngredient.objects.create(recipe=self.recipe, ingredient=ingredient, amount=1.0)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.put(f'/recipe/submit/{self.recipe.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, {'detail': {'non_field_errors': ["instructions can't be empty."]}})
+
+    def test_recipe_submission_with_missing_ingredients(self):
+        self.recipe.categories.add(self.category)
+        RecipePhoto.objects.create(recipe=self.recipe, photo=media_utils.generate_test_image(), number=1)
+        RecipeInstruction.objects.create(recipe=self.recipe, number=1, title="Instruction", content="The content of the instruction.")
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.put(f'/recipe/submit/{self.recipe.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, {'detail': {'non_field_errors': ["ingredients can't be empty."]}})
+
+    def test_recipe_submission_already_submitted(self):
+        self.recipe.submit_status = SubmitStatuses.SUBMITTED
+        self.recipe.save()
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.put(f'/recipe/submit/{self.recipe.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_recipe_submission_unauthorized(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.put(f'/recipe/submit/{self.recipe.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.recipe.refresh_from_db()
+        self.assertEqual(self.recipe.submit_status, SubmitStatuses.UNSUBMITTED)
+        self.user.vcode = "NotNone"
+        self.user.save()
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.put(f'/recipe/submit/{self.recipe.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.recipe.refresh_from_db()
+        self.assertEqual(self.recipe.submit_status, SubmitStatuses.UNSUBMITTED)

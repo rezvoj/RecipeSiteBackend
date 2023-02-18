@@ -650,3 +650,78 @@ class TestRecipeSubmission(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.recipe.refresh_from_db()
         self.assertEqual(self.recipe.submit_status, SubmitStatuses.UNSUBMITTED)
+
+
+@override_settings(DEFAULT_FILE_STORAGE=media_utils.TEST_DEFAULT_FILE_STORAGE)
+@override_settings(MEDIA_ROOT=media_utils.TEST_MEDIA_ROOT)
+@override_settings(APP_ADMIN_CODE='TEST_ADMIN_CODE')
+class TestRecipeAcceptOrDenyDecision(APITestCase):
+    def setUp(self):
+        self.moderator = User.objects.create(email="moderator@example.com", name="Moderator", moderator=True)
+        self.moderator_token = security.generate_token(self.moderator)
+        self.user = User.objects.create(email="user@example.com", name="Regular User")
+        self.recipe = Recipe.objects.create(
+            name="Test Recipe", title="Test Recipe Title",
+            user=self.user, prep_time=30, calories=200,
+            submit_status=SubmitStatuses.SUBMITTED
+        )
+
+    def tearDown(self):
+        media_utils.delete_test_media()
+
+    def test_accept_recipe_as_moderator(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.put(f'/recipe/accept/{self.recipe.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.recipe.refresh_from_db()
+        self.assertEqual(self.recipe.submit_status, SubmitStatuses.ACCEPTED)
+
+    def test_accept_recipe_unauthorized(self):
+        response: Response = self.client.put(f'/recipe/accept/{self.recipe.pk}', format='json')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.recipe.refresh_from_db()
+        self.assertEqual(self.recipe.submit_status, SubmitStatuses.SUBMITTED)
+
+    def test_accept_already_accepted_recipe(self):
+        self.recipe.submit_status = SubmitStatuses.ACCEPTED
+        self.recipe.save()
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.put(f'/recipe/accept/{self.recipe.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.recipe.refresh_from_db()
+        self.assertEqual(self.recipe.submit_status, SubmitStatuses.ACCEPTED)
+
+    def test_deny_recipe_as_moderator(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.put(
+            f'/recipe/deny/{self.recipe.pk}',
+            data={'deny_message': 'Recipe needs improvement.'},
+            format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.recipe.refresh_from_db()
+        self.assertEqual(self.recipe.submit_status, SubmitStatuses.DENIED)
+        self.assertEqual(self.recipe.deny_message, 'Recipe needs improvement.')
+
+    def test_deny_recipe_unauthorized(self):
+        response: Response = self.client.put(
+            f'/recipe/deny/{self.recipe.pk}',
+            data={'deny_message': 'Recipe needs improvement.'},
+            format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.recipe.refresh_from_db()
+        self.assertEqual(self.recipe.submit_status, SubmitStatuses.SUBMITTED)
+
+    def test_deny_already_accepted_recipe(self):
+        self.recipe.submit_status = SubmitStatuses.ACCEPTED
+        self.recipe.save()
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.put(
+            f'/recipe/deny/{self.recipe.pk}',
+            data={'deny_message': 'This should fail.'},
+            format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.recipe.refresh_from_db()
+        self.assertEqual(self.recipe.submit_status, SubmitStatuses.ACCEPTED)

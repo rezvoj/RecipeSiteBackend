@@ -195,3 +195,13 @@ class RecipeSubmitSerializer(serializers.Serializer):
         if RecipeIngredient.objects.filter(recipe=self.recipe).count() == 0:
             raise serializers.ValidationError("ingredients can't be empty.")
         return data
+
+
+class RecipeDenySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Recipe
+        fields = ('deny_message',)
+
+    def update(self, instance: Recipe, validated_data):
+        instance.submit_status = Statuses.DENIED
+        return super().update(instance, validated_data)

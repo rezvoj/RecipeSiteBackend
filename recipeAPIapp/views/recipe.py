@@ -179,3 +179,25 @@ class RecipeSubmitView(APIView):
         recipe.save()
         log.info(f"Recipe submitted - recipe {recipe.pk}, user {user.pk}")
         return Response({}, status=status.HTTP_200_OK)
+
+
+class RecipeAcceptView(APIView):
+    @transaction.atomic
+    def put(self, request: Request, recipe_id: int):
+        permission.admin_or_moderator(request)
+        recipe: Recipe = get(Recipe, pk=recipe_id, submit_status=Statuses.SUBMITTED)
+        recipe.submit_status = Statuses.ACCEPTED
+        recipe.save()
+        log.info(f"Recipe accepted - recipe {recipe.pk}, moderator {permission.user_id(request)}")
+        return Response({}, status=status.HTTP_200_OK)
+
+
+class RecipeDenyView(APIView):
+    @transaction.atomic
+    def put(self, request: Request, recipe_id: int):
+        permission.admin_or_moderator(request)
+        recipe: Recipe = get(Recipe, pk=recipe_id, submit_status=Statuses.SUBMITTED)
+        serializer = serializers.RecipeDenySerializer(instance=recipe, data=request.data)
+        validation.serializer(serializer).save()
+        log.info(f"Recipe denied - recipe {recipe.pk}, moderator {permission.user_id(request)}")
+        return Response({}, status=status.HTTP_200_OK)

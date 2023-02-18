@@ -42,6 +42,8 @@ urlpatterns = [
     path('recipe/instruction/<int:id>', RecipeViews.RecipeInstructionView.as_view()),
     path('recipe/ingredient/<int:recipe_id>/<int:ingredient_id>', RecipeViews.RecipeIngredientView.as_view()),
     path('recipe/submit/<int:recipe_id>', RecipeViews.RecipeSubmitView.as_view()),
+    path('recipe/accept/<int:recipe_id>', RecipeViews.RecipeAcceptView.as_view()),
+    path('recipe/deny/<int:recipe_id>', RecipeViews.RecipeDenyView.as_view()),
 
 ]
 

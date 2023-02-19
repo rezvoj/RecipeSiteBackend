@@ -201,3 +201,19 @@ class RecipeDenyView(APIView):
         validation.serializer(serializer).save()
         log.info(f"Recipe denied - recipe {recipe.pk}, moderator {permission.user_id(request)}")
         return Response({}, status=status.HTTP_200_OK)
+
+
+class RecipeCookView(APIView):
+    @transaction.atomic
+    def post(self, request: Request, recipe_id: int):
+        user: User = permission.verified(request)
+        recipe: Recipe = get(Recipe, pk=recipe_id, submit_status=Statuses.ACCEPTED)
+        serializer = serializers.RecipeCookSerializer(user=user, recipe=recipe, data=request.data)
+        servings_value = Value(validation.serializer(serializer).validated_data['servings'], output_field=DecimalField())
+        subquery = RecipeIngredient.objects.filter(recipe=recipe, ingredient=OuterRef('ingredient'))
+        subquery = Subquery(subquery.values('amount'), output_field=DecimalField())
+        query = UserIngredient.objects.filter(user=user, ingredient__recipeingredient__recipe=recipe)
+        query.update(amount = F('amount') - subquery * servings_value)
+        UserIngredient.objects.filter(user=user, amount=Decimal(0)).delete()
+        log.info(f"User inventory updated - user {user.pk}")
+        return Response({}, status=status.HTTP_200_OK)

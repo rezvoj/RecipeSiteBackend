@@ -205,3 +205,21 @@ class RecipeDenySerializer(serializers.ModelSerializer):
     def update(self, instance: Recipe, validated_data):
         instance.submit_status = Statuses.DENIED
         return super().update(instance, validated_data)
+
+
+class RecipeCookSerializer(serializers.Serializer):
+    servings = serializers.IntegerField(default=1, min_value=1)
+    
+    def __init__(self, *args, user: User, recipe: Recipe, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+        self.recipe = recipe
+
+    def validate(self, data):
+        data = super().validate(data)
+        servings_value = Value(data['servings'], output_field=DecimalField())
+        expression = ExpressionWrapper(OuterRef('amount') * servings_value, output_field=DecimalField())
+        subq = UserIngredient.objects.filter(user=self.user, ingredient=OuterRef('ingredient'), amount__gte=expression)
+        if RecipeIngredient.objects.filter(recipe=self.recipe).filter(~Exists(subq)).count() > 0:
+            raise serializers.ValidationError("insufficient ingredients.")
+        return data

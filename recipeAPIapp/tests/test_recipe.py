@@ -725,3 +725,86 @@ class TestRecipeAcceptOrDenyDecision(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.recipe.refresh_from_db()
         self.assertEqual(self.recipe.submit_status, SubmitStatuses.ACCEPTED)
+
+
+@override_settings(DEFAULT_FILE_STORAGE=media_utils.TEST_DEFAULT_FILE_STORAGE)
+@override_settings(MEDIA_ROOT=media_utils.TEST_MEDIA_ROOT)
+class TestCookRecipe(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create(email="user@example.com", name="Regular User")
+        self.user_token = security.generate_token(self.user)
+        self.ingredient1 = Ingredient.objects.create(name="Ingredient 1", unit="kg", photo=media_utils.generate_test_image())
+        self.ingredient2 = Ingredient.objects.create(name="Ingredient 2", unit="g", photo=media_utils.generate_test_image())
+        self.ingredient3 = Ingredient.objects.create(name="Ingredient 3", unit="mg", photo=media_utils.generate_test_image())
+        self.ingredient4 = Ingredient.objects.create(name="Ingredient 4", unit="l", photo=media_utils.generate_test_image())
+        UserIngredient.objects.create(user=self.user, ingredient=self.ingredient1, amount=Decimal('2.0'))
+        UserIngredient.objects.create(user=self.user, ingredient=self.ingredient2, amount=Decimal('1.8'))
+        UserIngredient.objects.create(user=self.user, ingredient=self.ingredient3, amount=Decimal('3.0'))
+        UserIngredient.objects.create(user=self.user, ingredient=self.ingredient4, amount=Decimal('1.0'))
+        self.recipe = Recipe.objects.create(
+            name="Test Recipe", title="Test Recipe Title",
+            user=self.user, prep_time=30, calories=200,
+            submit_status=SubmitStatuses.ACCEPTED
+        )
+        RecipeIngredient.objects.create(recipe=self.recipe, ingredient=self.ingredient1, amount=Decimal('0.5'))
+        RecipeIngredient.objects.create(recipe=self.recipe, ingredient=self.ingredient2, amount=Decimal('0.9'))
+        RecipeIngredient.objects.create(recipe=self.recipe, ingredient=self.ingredient3, amount=Decimal('0.8'))
+
+    def tearDown(self):
+        media_utils.delete_test_media()
+
+    def test_cook_recipe_successful(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(f'/recipe/cook/{self.recipe.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(UserIngredient.objects.get(user=self.user, ingredient=self.ingredient1).amount, Decimal('1.5'))
+        self.assertEqual(UserIngredient.objects.get(user=self.user, ingredient=self.ingredient2).amount, Decimal('0.9'))
+        self.assertEqual(UserIngredient.objects.get(user=self.user, ingredient=self.ingredient3).amount, Decimal('2.2'))
+        self.assertEqual(UserIngredient.objects.get(user=self.user, ingredient=self.ingredient4).amount, Decimal('1.0'))
+
+    def test_cook_recipe_successful_with_servings(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(f'/recipe/cook/{self.recipe.pk}', data={'servings': 2}, format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(UserIngredient.objects.get(user=self.user, ingredient=self.ingredient1).amount, Decimal('1.0'))
+        self.assertFalse(UserIngredient.objects.filter(user=self.user, ingredient=self.ingredient2).exists())
+        self.assertEqual(UserIngredient.objects.get(user=self.user, ingredient=self.ingredient3).amount, Decimal('1.4'))
+        self.assertEqual(UserIngredient.objects.get(user=self.user, ingredient=self.ingredient4).amount, Decimal('1.0'))
+
+    def test_cook_recipe_insufficient_ingredient(self):
+        UserIngredient.objects.filter(user=self.user, ingredient=self.ingredient2).update(amount=Decimal('0.5'))
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(f'/recipe/cook/{self.recipe.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, {'detail': {'non_field_errors': ['insufficient ingredients.']}})
+        self.assertEqual(UserIngredient.objects.get(user=self.user, ingredient=self.ingredient1).amount, Decimal('2.0'))
+        self.assertEqual(UserIngredient.objects.get(user=self.user, ingredient=self.ingredient2).amount, Decimal('0.5'))
+        self.assertEqual(UserIngredient.objects.get(user=self.user, ingredient=self.ingredient3).amount, Decimal('3.0'))
+        self.assertEqual(UserIngredient.objects.get(user=self.user, ingredient=self.ingredient4).amount, Decimal('1.0'))
+
+    def test_cook_recipe_insufficient_ingredient_with_servings(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(f'/recipe/cook/{self.recipe.pk}', data={'servings': 3}, format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, {'detail': {'non_field_errors': ['insufficient ingredients.']}})
+        self.assertEqual(UserIngredient.objects.get(user=self.user, ingredient=self.ingredient1).amount, Decimal('2.0'))
+        self.assertEqual(UserIngredient.objects.get(user=self.user, ingredient=self.ingredient2).amount, Decimal('1.8'))
+        self.assertEqual(UserIngredient.objects.get(user=self.user, ingredient=self.ingredient3).amount, Decimal('3.0'))
+        self.assertEqual(UserIngredient.objects.get(user=self.user, ingredient=self.ingredient4).amount, Decimal('1.0'))
+
+    def test_cook_recipe_missing_ingredient(self):
+        UserIngredient.objects.filter(user=self.user, ingredient=self.ingredient2).delete()
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(f'/recipe/cook/{self.recipe.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, {'detail': {'non_field_errors': ['insufficient ingredients.']}})
+        self.assertEqual(UserIngredient.objects.get(user=self.user, ingredient=self.ingredient1).amount, Decimal('2.0'))
+        self.assertEqual(UserIngredient.objects.get(user=self.user, ingredient=self.ingredient3).amount, Decimal('3.0'))
+        self.assertEqual(UserIngredient.objects.get(user=self.user, ingredient=self.ingredient4).amount, Decimal('1.0'))
+
+    def test_cook_recipe_unauthorized(self):
+        self.user.vcode = "NotNone"
+        self.user.save()
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(f'/recipe/cook/{self.recipe.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

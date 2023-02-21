@@ -217,3 +217,16 @@ class RecipeCookView(APIView):
         UserIngredient.objects.filter(user=user, amount=Decimal(0)).delete()
         log.info(f"User inventory updated - user {user.pk}")
         return Response({}, status=status.HTTP_200_OK)
+
+
+class RecipeFavourView(APIView):
+    @transaction.atomic
+    def post(self, request: Request, recipe_id: int):
+        user: User = permission.verified(request)
+        recipe: Recipe = get(Recipe, pk=recipe_id, submit_status=Statuses.ACCEPTED)
+        favoured = recipe.favoured_by.filter(pk=user.pk).exists()
+        if favoured:
+            recipe.favoured_by.remove(user)
+        else:
+            recipe.favoured_by.add(user)
+        return Response({}, status=status.HTTP_200_OK)

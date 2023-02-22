@@ -230,3 +230,19 @@ class RecipeFavourView(APIView):
         else:
             recipe.favoured_by.add(user)
         return Response({}, status=status.HTTP_200_OK)
+
+
+class RecipeDetailView(APIView):
+    def get(self, request: Request, recipe_id):
+        user = request.user
+        recipe: Recipe = get(Recipe, pk=recipe_id)
+        if recipe.user == user:
+            valid_statuses = [Statuses.UNSUBMITTED, Statuses.SUBMITTED, Statuses.DENIED, Statuses.ACCEPTED]
+        elif permission.is_admin_or_moderator(request):
+            valid_statuses = [Statuses.SUBMITTED, Statuses.ACCEPTED]
+        else:
+            valid_statuses = [Statuses.ACCEPTED]
+        if recipe.submit_status not in valid_statuses:
+            raise Http404()
+        serializer = serializers.RecipeData(instance=recipe, user=user)
+        return Response(serializer.data, status=status.HTTP_200_OK)

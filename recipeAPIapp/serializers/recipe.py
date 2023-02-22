@@ -223,3 +223,114 @@ class RecipeCookSerializer(serializers.Serializer):
         if RecipeIngredient.objects.filter(recipe=self.recipe).filter(~Exists(subq)).count() > 0:
             raise serializers.ValidationError("insufficient ingredients.")
         return data
+
+
+class RecipeSmallData(serializers.ModelSerializer):
+    photo = serializers.SerializerMethodField()
+    user = user_serializers.UserSmallData()
+
+    class Meta:
+        model = Recipe
+        fields = (
+            'id', 'photo', 'user', 'name', 'title', 
+            'prep_time', 'calories', 'created_at',
+        )
+
+    def get_photo(self, obj: Recipe):
+        recipe_photo = RecipePhoto.objects.filter(recipe=obj).order_by('number').first()
+        return recipe_photo.photo.url if recipe_photo is not None else None
+
+
+class RecipeBaseData(RecipeSmallData):
+    rating_count = serializers.IntegerField()
+    avg_rating = serializers.FloatField()
+    favoured = serializers.SerializerMethodField()
+    deny_message = serializers.SerializerMethodField()
+    
+    def __init__(self, *args, user: User, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+
+    class Meta:
+        model = Recipe
+        fields = RecipeSmallData.Meta.fields + (
+            'submit_status', 'deny_message',
+            'rating_count', 'avg_rating', 'favoured',
+        )
+
+    def get_favoured(self, obj: Recipe):
+        if isinstance(self.user, User):
+            return obj.favoured_by.filter(pk=self.user.pk).exists()
+        return None
+
+    def get_deny_message(self, obj: Recipe):
+        if obj.user == self.user:
+            return obj.deny_message
+        return None
+
+
+class RecipePhotoData(serializers.ModelSerializer):
+    class Meta:
+        model = RecipePhoto
+        fields = ('id', 'photo')
+
+
+class RecipeInstructionData(serializers.ModelSerializer):
+    class Meta:
+        model = RecipeInstruction
+        fields = ('id', 'photo', 'title', 'content')
+
+
+class RecipeIngredientData(serializers.ModelSerializer):
+    ingredient = categorical_serializers.IngredientSmallData()
+    
+    class Meta:
+        model = RecipeIngredient
+        fields = ('ingredient', 'amount')
+
+
+class RecipeData(RecipeBaseData):
+    rating_count = serializers.SerializerMethodField()
+    avg_rating = serializers.SerializerMethodField()
+    favoured_count = serializers.SerializerMethodField()
+    cookable_portions = serializers.SerializerMethodField()
+    categories = categorical_serializers.CategorySmallData(many=True)
+    ingredients = serializers.SerializerMethodField()
+    photos = serializers.SerializerMethodField()
+    instructions = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Recipe
+        fields = RecipeBaseData.Meta.fields + (
+            'cookable_portions', 'favoured_count',
+            'categories', 'ingredients', 'photos', 'instructions'
+        )
+
+    def get_rating_count(self, obj: Recipe):
+        return Rating.objects.filter(recipe=obj).count()
+
+    def get_avg_rating(self, obj: Recipe):
+        aggr = Rating.objects.filter(recipe=obj).aggregate(Avg('stars'))
+        return aggr['stars__avg'] if aggr['stars__avg'] is not None else 0
+
+    def get_favoured_count(self, obj: Recipe):
+        return obj.favoured_by.count()
+    
+    def get_cookable_portions(self, obj: Recipe):
+        if isinstance(self.user, User):
+            subquery = Subquery(UserIngredient.objects.filter(user=self.user, ingredient=OuterRef('ingredient')).values('amount')[:1])
+            expression = ExpressionWrapper(Coalesce(subquery, 0) / F('amount'), output_field=IntegerField())
+            return RecipeIngredient.objects.filter(recipe=obj).annotate(TUH=expression).aggregate(min=Min('TUH'))['min']
+        return None
+
+    def get_ingredients(self, obj: Recipe):
+        qryset = RecipeIngredient.objects.filter(recipe=obj)
+        return [RecipeIngredientData(instance=ingredient).data for ingredient in qryset]
+
+    def get_photos(self, obj: Recipe):
+        qryset = RecipePhoto.objects.filter(recipe=obj).order_by('number')
+        return [RecipePhotoData(instance=photo).data for photo in qryset]
+    
+    def get_instructions(self, obj: Recipe):
+        qryset = RecipeInstruction.objects.filter(recipe=obj).order_by('number')
+        return [RecipeInstructionData(instance=instruction).data for instruction in qryset]

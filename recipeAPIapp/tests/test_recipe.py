@@ -855,3 +855,155 @@ class TestRecipeFavour(APITestCase):
         headers = {'HTTP_AUTHORIZATION': f'Bearer {unverified_token}'}
         response: Response = self.client.post(f'/recipe/change-favourite/{self.recipe.pk}', format='json', **headers)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+@override_settings(DEFAULT_FILE_STORAGE=media_utils.TEST_DEFAULT_FILE_STORAGE)
+@override_settings(MEDIA_ROOT=media_utils.TEST_MEDIA_ROOT)
+@override_settings(APP_ADMIN_CODE='TEST_ADMIN_CODE')
+class TestRecipeDetail(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create(email="user@example.com", name="Regular User")
+        self.user_token = security.generate_token(self.user)
+        self.moderator = User.objects.create(email="moderator@example.com", name="Moderator", moderator=True)
+        self.moderator_token = security.generate_token(self.moderator)
+        self.other_user = User.objects.create(email="other_user@example.com", name="Other User")
+        self.other_user_token = security.generate_token(self.other_user)
+        self.category1 = Category.objects.create(name="Category1", photo=media_utils.generate_test_image())
+        self.category2 = Category.objects.create(name="Category2", photo=media_utils.generate_test_image())
+        self.ingredient1 = Ingredient.objects.create(name="Ingredient", unit="kg", photo=media_utils.generate_test_image())
+        self.ingredient2 = Ingredient.objects.create(name="Ingredient2", unit="g", photo=media_utils.generate_test_image())
+        self.recipe = Recipe.objects.create(
+            name="Test Recipe", title="Test Recipe Title",
+            user=self.user, prep_time=30, calories=200,
+            submit_status=SubmitStatuses.ACCEPTED
+        )
+        self.recipe.categories.add(self.category1, self.category2)
+        self.recipe.favoured_by.add(self.user, self.moderator)
+        UserIngredient.objects.create(user=self.user, ingredient=self.ingredient1, amount=3.0)
+        UserIngredient.objects.create(user=self.user, ingredient=self.ingredient2, amount=1.1)
+        RecipeIngredient.objects.create(recipe=self.recipe, ingredient=self.ingredient1, amount=1.5)
+        RecipeIngredient.objects.create(recipe=self.recipe, ingredient=self.ingredient2, amount=0.5)
+        self.photo1 = RecipePhoto.objects.create(recipe=self.recipe, photo=media_utils.generate_test_image(), number=2)
+        self.photo2 = RecipePhoto.objects.create(recipe=self.recipe, photo=media_utils.generate_test_image(), number=1)
+        self.instruction1 = RecipeInstruction.objects.create(
+            recipe=self.recipe, title="Instruction 3", content="Step 3", 
+            number=3, photo=media_utils.generate_test_image()
+        )
+        self.instruction2 = RecipeInstruction.objects.create(
+            recipe=self.recipe, title="Instruction 1", content="Step 1",
+            number=1, photo=media_utils.generate_test_image()
+        )
+        self.instruction3 = RecipeInstruction.objects.create(recipe=self.recipe, title="Instruction 2", content="Step 2", number=2)
+        self.rating1 = Rating.objects.create(user=self.other_user, recipe=self.recipe, stars=4, content="Good recipe!")
+        self.rating2 = Rating.objects.create(user=self.user, recipe=self.recipe, stars=2, content="Good recipe2!")
+
+    def tearDown(self):
+        media_utils.delete_test_media()
+
+    def test_get_recipe_detail_success(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.get(f'/recipe/detail/{self.recipe.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, {
+            'id': self.recipe.pk, 
+            'photo': self.photo2.photo.url,
+            'user': {
+                'id': self.user.pk, 
+                'photo': None, 'name': 'Regular User', 
+                'created_at': self.user.created_at.isoformat()
+            }, 
+            'name': 'Test Recipe', 'title': 'Test Recipe Title', 
+            'prep_time': 30, 'calories': 200, 
+            'created_at': self.recipe.created_at.isoformat(), 
+            'submit_status': 'ACCEPTED', 
+            'deny_message': None,
+            'rating_count': 2, 'avg_rating': 3.0,
+            'favoured': True, 'cookable_portions': 2,
+            'favoured_count': 2, 'categories': [
+                {
+                    'id': self.category1.pk, 
+                    'photo': self.category1.photo.url, 
+                    'name': 'Category1'
+                }, {
+                    'id': self.category2.pk, 
+                    'photo': self.category2.photo.url, 
+                    'name': 'Category2'
+                }
+            ], 
+            'ingredients': [
+                {
+                    'ingredient': {
+                        'id': self.ingredient1.pk, 
+                        'photo': self.ingredient1.photo.url, 
+                        'unit': 'kg', 'name': 'Ingredient'
+                    }, 
+                    'amount': '1.50'
+                }, {
+                    'ingredient': {
+                        'id': self.ingredient2.pk, 
+                        'photo': self.ingredient2.photo.url, 
+                        'unit': 'g', 'name': 'Ingredient2'
+                    }, 
+                    'amount': '0.50'
+                }
+            ],
+            'photos': [
+                {'id': self.photo2.pk, 'photo': self.photo2.photo.url}, 
+                {'id': self.photo1.pk, 'photo': self.photo1.photo.url}
+            ], 
+            'instructions': [
+                {
+                    'id': self.instruction2.pk, 
+                    'photo': self.instruction2.photo.url, 
+                    'title': 'Instruction 1', 'content': 'Step 1'
+                }, {
+                    'id': self.instruction3.pk, 'photo': None, 
+                    'title': 'Instruction 2', 'content': 'Step 2'
+                }, {
+                    'id': self.instruction1.pk, 
+                    'photo': self.instruction1.photo.url, 
+                    'title': 'Instruction 3', 'content': 'Step 3'
+                }
+            ]
+        })
+
+    def test_get_recipe_detail_as_other_user_denied_access(self):
+        self.recipe.submit_status = SubmitStatuses.UNSUBMITTED
+        self.recipe.save()
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.other_user_token}'}
+        response: Response = self.client.get(f'/recipe/detail/{self.recipe.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_get_recipe_detail_as_moderator_success(self):
+        self.recipe.submit_status = SubmitStatuses.SUBMITTED
+        self.recipe.save()
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.get(f'/recipe/detail/{self.recipe.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_get_recipe_detail_as_moderator_denied_access(self):
+        self.recipe.submit_status = SubmitStatuses.DENIED
+        self.recipe.save()
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.moderator_token}'}
+        response: Response = self.client.get(f'/recipe/detail/{self.recipe.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_get_recipe_detail_as_admin_success(self):
+        self.recipe.submit_status = SubmitStatuses.SUBMITTED
+        self.recipe.save()
+        headers = {'HTTP_ADMINCODE': 'TEST_ADMIN_CODE'}
+        response: Response = self.client.get(f'/recipe/detail/{self.recipe.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_get_recipe_detail_as_owner_success_for_denied_recipe(self):
+        self.recipe.submit_status = SubmitStatuses.DENIED
+        self.recipe.save()
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.get(f'/recipe/detail/{self.recipe.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_get_recipe_detail_unauthorized(self):
+        response: Response = self.client.get(f'/recipe/detail/{self.recipe.pk}', format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.data['favoured'])
+        self.assertIsNone(response.data['cookable_portions'])

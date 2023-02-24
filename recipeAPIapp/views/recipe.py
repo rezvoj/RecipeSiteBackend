@@ -246,3 +246,43 @@ class RecipeDetailView(APIView):
             raise Http404()
         serializer = serializers.RecipeData(instance=recipe, user=user)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class RecipeFilterView(APIView):
+    def get(self, request: Request):
+        user = request.user
+        serializer = serializers.RecipeFilter(request=request, data=request.query_params)
+        vdata = validation.serializer(serializer).validated_data
+        if 'submit_status' in vdata:
+            qryset = Recipe.objects.filter(submit_status=vdata['submit_status'])
+        else:
+            qryset = Recipe.objects.filter(submit_status=Statuses.ACCEPTED)
+        if isinstance(user, User):
+            if vdata['favourite_category']:
+                qryset = qryset.filter(categories__in=Category.objects.filter(favoured_by=user)).distinct()
+            if vdata['favoured']:
+                qryset = qryset.filter(favoured_by=user)
+            if vdata['sufficient_ingrediens']:
+                servings_value = Value(vdata['servings'], output_field=DecimalField())
+                expression = ExpressionWrapper(OuterRef('amount') * servings_value, output_field=DecimalField())
+                subq = UserIngredient.objects.filter(user=user, ingredient=OuterRef('ingredient'), amount__gte=expression)
+                qryset = qryset.filter(~Exists(RecipeIngredient.objects.filter(recipe_id=OuterRef('pk')).filter(~Exists(subq))))
+        if 'categories' in vdata and len(vdata['categories']):
+            qryset = qryset.filter(categories__in=vdata['categories']).distinct()
+        if 'user' in vdata:
+            qryset = qryset.filter(user=vdata['user'])
+        if 'calories_limit' in vdata:
+            qryset = qryset.filter(calories__lte=(vdata['calories_limit'] / vdata['servings']))
+        if 'prep_time_limit' in vdata:
+            qryset = qryset.filter(prep_time__lte=vdata['prep_time_limit'])
+        if 'search_string' in vdata:
+            qryset = filtering.search(qryset, ['name', 'title'], vdata['search_string'])
+        qryset = qryset.annotate(rating_count=Count('rating', distinct=True))
+        qryset = qryset.annotate(avg_rating=Avg('rating__stars', distinct=True))
+        replace = {
+            'rating_count': (Count, 'rating', 'rating'), 
+            'avg_rating': (Avg, 'rating__stars', 'rating')
+        }
+        qryset = filtering.order_by(qryset, vdata, **replace)
+        result = filtering.paginate(qryset, vdata, lambda qs: serializers.RecipeBaseData(qs, user=user, many=True).data)
+        return Response(result, status=status.HTTP_200_OK)

@@ -334,3 +334,39 @@ class RecipeData(RecipeBaseData):
     def get_instructions(self, obj: Recipe):
         qryset = RecipeInstruction.objects.filter(recipe=obj).order_by('number')
         return [RecipeInstructionData(instance=instruction).data for instruction in qryset]
+
+
+class RecipeFilter(serializers.Serializer):
+    categories = serializers.PrimaryKeyRelatedField(queryset=Category.objects.all(), required=False, many=True)
+    user = serializers.PrimaryKeyRelatedField(queryset=User.objects.filter(banned=False), required=False)
+    submit_status = serializers.CharField(required=False)
+    calories_limit = serializers.IntegerField(required=False, min_value=0)
+    servings = serializers.IntegerField(default=1, min_value=1)
+    prep_time_limit = serializers.IntegerField(required=False, min_value=0)
+    favourite_category = serializers.BooleanField(default=False)
+    sufficient_ingrediens = serializers.BooleanField(default=False)
+    favoured = serializers.BooleanField(default=False)
+    search_string = serializers.CharField(required=False)
+    order_by = serializers.ListField(child=serializers.CharField(), required=False)
+    order_time_window = serializers.IntegerField(min_value=1, required=False)
+    page = serializers.IntegerField(default=1, min_value=1)
+    page_size = serializers.IntegerField(default=20, min_value=1, max_value=100)
+    
+    def __init__(self, *args, request: Request, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.request = request
+
+    def validate_submit_status(self, value):
+        user = User.objects.filter(pk=self.initial_data.get('user', None)).first()
+        if isinstance(user, User) and user == self.request.user:
+            valid_statuses = [Statuses.UNSUBMITTED, Statuses.SUBMITTED, Statuses.DENIED, Statuses.ACCEPTED]
+        elif permission.is_admin_or_moderator(self.request):
+            valid_statuses = [Statuses.SUBMITTED, Statuses.ACCEPTED]
+        else:
+            valid_statuses = [Statuses.ACCEPTED]
+        if value not in valid_statuses:
+            raise serializers.ValidationError("invalid submit_status value.")
+        return value
+
+    def validate_order_by(self, value):
+        return validation.order_by(value, ['name', 'rating_count', 'avg_rating', 'prep_time', 'calories', 'created_at'])

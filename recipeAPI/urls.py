@@ -47,6 +47,7 @@ urlpatterns = [
     path('recipe/cook/<int:recipe_id>', RecipeViews.RecipeCookView.as_view()),
     path('recipe/change-favourite/<int:recipe_id>', RecipeViews.RecipeFavourView.as_view()),
     path('recipe/detail/<int:recipe_id>', RecipeViews.RecipeDetailView.as_view()),
+    path('recipe/filter/paged', RecipeViews.RecipeFilterView.as_view()),
 
 ]
 

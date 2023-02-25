@@ -49,6 +49,9 @@ urlpatterns = [
     path('recipe/detail/<int:recipe_id>', RecipeViews.RecipeDetailView.as_view()),
     path('recipe/filter/paged', RecipeViews.RecipeFilterView.as_view()),
 
+    path('rating/<int:id>', RecipeViews.RatingView.as_view()),
+    path('rating/change-liked/<int:rating_id>', RecipeViews.RatingLikeView.as_view()),
+
 ]
 
 if settings.DEFAULT_FILE_STORAGE == 'django.core.files.storage.FileSystemStorage':

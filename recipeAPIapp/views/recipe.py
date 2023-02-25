@@ -286,3 +286,47 @@ class RecipeFilterView(APIView):
         qryset = filtering.order_by(qryset, vdata, **replace)
         result = filtering.paginate(qryset, vdata, lambda qs: serializers.RecipeBaseData(qs, user=user, many=True).data)
         return Response(result, status=status.HTTP_200_OK)
+
+
+class RatingView(APIView):
+    @transaction.atomic
+    def post(self, request: Request, id: int):
+        user: User = permission.verified(request)
+        if validation.is_limited(user, Rating, Config.ContentLimits.rating):
+            limit = Config.ContentLimits.rating
+            raise ContentLimitException({'limit': limit[0], 'hours': limit[1]})
+        request.data['recipe'] = id
+        serializer = serializers.RatingCreateSerializer(user=user, data=request.data)
+        rating: Rating = validation.serializer(serializer).save()
+        log.info(f"Rating created - rating {rating.pk}, user {user.pk}")
+        return Response({'id': rating.pk}, status=status.HTTP_201_CREATED)
+
+    @transaction.atomic
+    def put(self, request: Request, id: int):
+        user: User = permission.verified(request)
+        rating: Rating = get(Rating, pk=id, user=user)
+        serializer = serializers.RatingUpdateSerializer(instance=rating, data=request.data, partial=True)
+        validation.serializer(serializer).save()
+        log.info(f"Rating updated - rating {rating.pk}, user {user.pk}")
+        return Response({}, status=status.HTTP_200_OK)
+
+    @transaction.atomic
+    def delete(self, request: Request, id: int):
+        user: User = permission.verified(request)
+        rating: Rating = get(Rating, pk=id, user=user)
+        rating.delete()
+        log.info(f"Rating deleted - rating {id}, user {user.pk}")
+        return Response({}, status=status.HTTP_204_NO_CONTENT)
+
+
+class RatingLikeView(APIView):
+    @transaction.atomic
+    def post(self, request: Request, rating_id: int):
+        user: User = permission.user(request)
+        rating: Rating = get(Rating, pk=rating_id, recipe__submit_status=Statuses.ACCEPTED)
+        liked = rating.liked_by.filter(pk=user.pk).exists()
+        if liked:
+            rating.liked_by.remove(user)
+        else:
+            rating.liked_by.add(user)
+        return Response({}, status=status.HTTP_200_OK)

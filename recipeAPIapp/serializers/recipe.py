@@ -370,3 +370,41 @@ class RecipeFilter(serializers.Serializer):
 
     def validate_order_by(self, value):
         return validation.order_by(value, ['name', 'rating_count', 'avg_rating', 'prep_time', 'calories', 'created_at'])
+
+
+class RatingCreateSerializer(serializers.ModelSerializer):
+    recipe = serializers.PrimaryKeyRelatedField(queryset=Recipe.objects.filter(submit_status=Statuses.ACCEPTED))
+
+    class Meta:
+        model = Rating
+        fields = ('recipe', 'photo', 'stars', 'content')
+
+    def __init__(self, *args, user: User, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+
+    def validate_photo(self, value):
+        return validation.photo(value)
+
+    def validate(self, data):
+        data = super().validate(data)
+        if Rating.objects.filter(user=self.user, recipe=data['recipe']).exists():
+            raise serializers.ValidationError("recipe already rated.")
+        return data
+    
+    def create(self, validated_data: dict):
+        validated_data['user'] = self.user
+        return super().create(validated_data)
+
+
+class RatingUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Rating
+        fields = ('photo', 'stars', 'content')
+
+    def validate_photo(self, value):
+        return validation.photo(value)
+
+    def update(self, instance: Rating, validated_data):
+        instance.edited_at = utc_now()
+        return super().update(instance, validated_data)

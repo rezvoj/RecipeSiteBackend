@@ -1007,3 +1007,159 @@ class TestRecipeDetail(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(response.data['favoured'])
         self.assertIsNone(response.data['cookable_portions'])
+
+
+@override_settings(DEFAULT_FILE_STORAGE=media_utils.TEST_DEFAULT_FILE_STORAGE)
+@override_settings(MEDIA_ROOT=media_utils.TEST_MEDIA_ROOT)
+class TestRatingCUD(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create(email="user@example.com", name="Regular User")
+        self.user_token = security.generate_token(self.user)
+        self.other_user = User.objects.create(email="other_user@example.com", name="Other User")
+        self.other_user_token = security.generate_token(self.other_user)
+        self.recipe = Recipe.objects.create(
+            name="Test Recipe", title="Test Recipe Title",
+            user=self.user, prep_time=30, calories=200,
+            submit_status=SubmitStatuses.ACCEPTED
+        )
+
+    def tearDown(self):
+        media_utils.delete_test_media()
+
+    def test_create_rating_successful(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(
+            f'/rating/{self.recipe.pk}',
+            data={'stars': 4, 'content': 'Great recipe!'},
+            format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn('id', response.data)
+        rating = Rating.objects.get(pk=response.data['id'])
+        self.assertEqual(rating.stars, 4)
+        self.assertEqual(rating.content, 'Great recipe!')
+        self.assertEqual(rating.user, self.user)
+        self.assertIsNone(rating.edited_at)
+
+    @patch('recipeAPIapp.apps.Config.ContentLimits.rating', (0, 24))
+    def test_create_rating_limit_exceeded(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(
+            f'/rating/{self.recipe.pk}',
+            data={'stars': 4, 'content': 'Great recipe!'},
+            format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, {'detail': {'limit': 0, 'hours': 24}})
+
+    def test_create_rating_recipe_already_rated(self):
+        Rating.objects.create(user=self.user, recipe=self.recipe, stars=5, content="Already rated!")
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(
+            f'/rating/{self.recipe.pk}',
+            data={'stars': 4, 'content': 'Great recipe!'},
+            format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, {'detail': {'non_field_errors': ['recipe already rated.']}})
+
+    def test_update_rating_successful(self):
+        rating = Rating.objects.create(user=self.user, recipe=self.recipe, stars=4, content="Great recipe!")
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.put(
+            f'/rating/{rating.pk}',
+            data={'stars': 5, 'content': 'Updated review!'},
+            format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        rating.refresh_from_db()
+        self.assertEqual(rating.stars, 5)
+        self.assertEqual(rating.content, 'Updated review!')
+        self.assertIsNotNone(rating.edited_at)
+        self.assertAlmostEqual(rating.edited_at, utc_now(), delta=timedelta(seconds=1))
+
+    def test_delete_rating_successful(self):
+        rating = Rating.objects.create(user=self.user, recipe=self.recipe, stars=4, content="Great recipe!")
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.delete(f'/rating/{rating.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Rating.objects.filter(pk=rating.pk).exists())
+
+    def test_create_rating_unauthorized(self):
+        self.user.vcode = "NotNone"
+        self.user.save()
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(
+            f'/rating/{self.recipe.pk}',
+            data={'stars': 4, 'content': 'Great recipe!'},
+            format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertFalse(Rating.objects.filter(recipe=self.recipe, user=self.user).exists())
+
+    def test_update_rating_unauthorized(self):
+        rating = Rating.objects.create(user=self.user, recipe=self.recipe, stars=4, content="Great recipe!")
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.other_user_token}'}
+        response: Response = self.client.put(
+            f'/rating/{rating.pk}',
+            data={'stars': 5, 'content': 'Unauthorized update!'},
+            format='json', **headers
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        rating.refresh_from_db()
+        self.assertNotEqual(rating.stars, 5)
+        self.assertNotEqual(rating.content, 'Unauthorized update!')
+        self.assertIsNone(rating.edited_at)
+
+    def test_delete_rating_unauthorized(self):
+        rating = Rating.objects.create(user=self.user, recipe=self.recipe, stars=4, content="Great recipe!")
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.other_user_token}'}
+        response: Response = self.client.delete(f'/rating/{rating.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(Rating.objects.filter(pk=rating.pk).exists())
+
+
+@override_settings(DEFAULT_FILE_STORAGE=media_utils.TEST_DEFAULT_FILE_STORAGE)
+@override_settings(MEDIA_ROOT=media_utils.TEST_MEDIA_ROOT)
+class TestRatingLike(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create(email="user@example.com", name="Regular User")
+        self.user_token = security.generate_token(self.user)
+        self.recipe = Recipe.objects.create(
+            name="Test Recipe", title="Test Recipe Title",
+            user=self.user, prep_time=30, calories=200,
+            submit_status=SubmitStatuses.ACCEPTED
+        )
+        self.rating = Rating.objects.create(
+            user=self.user, recipe=self.recipe, 
+            stars=4, content="Great recipe!"
+        )
+    
+    def tearDown(self):
+        media_utils.delete_test_media()
+
+    def test_add_rating_to_liked(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(f'/rating/change-liked/{self.rating.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(self.rating.liked_by.filter(pk=self.user.pk).exists())
+
+    def test_remove_rating_from_liked(self):
+        self.rating.liked_by.add(self.user)
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post(f'/rating/change-liked/{self.rating.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(self.rating.liked_by.filter(pk=self.user.pk).exists())
+
+    def test_like_non_existent_rating(self):
+        headers = {'HTTP_AUTHORIZATION': f'Bearer {self.user_token}'}
+        response: Response = self.client.post('/rating/change-liked/999', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.recipe.submit_status = SubmitStatuses.UNSUBMITTED
+        self.recipe.save()
+        response: Response = self.client.post(f'/rating/change-liked/{self.rating.pk}', format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_like_rating_unauthorized(self):
+        response: Response = self.client.post(f'/rating/change-liked/{self.rating.pk}', format='json')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

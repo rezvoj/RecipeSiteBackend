@@ -330,3 +330,29 @@ class RatingLikeView(APIView):
         else:
             rating.liked_by.add(user)
         return Response({}, status=status.HTTP_200_OK)
+
+
+class RatingFilterView(APIView):
+    def get(self, request: Request):
+        user = request.user
+        serializer = serializers.RatingFilter(data=request.query_params)
+        vdata = validation.serializer(serializer).validated_data
+        qryset = Rating.objects.filter(recipe__submit_status=Statuses.ACCEPTED)
+        if 'recipe' in vdata:
+            serializer = serializers.RatingRecipeData
+            qryset = qryset.filter(recipe=vdata['recipe'])
+        elif 'user' in vdata:
+            serializer = serializers.RatingUserData
+            qryset = qryset.filter(user=vdata['user'])
+        else:
+            serializer = serializers.RatingData
+        if isinstance(user, User) and vdata['liked']:
+            qryset = qryset.filter(liked_by=user)
+        if vdata['has_content']:
+            qryset = qryset.filter(Q(content__isnull=False) | (Q(photo__isnull=False) & ~Q(photo='')))
+        if 'search_string' in vdata:
+            qryset = filtering.search(qryset, ['content'], vdata['search_string'])
+        qryset = qryset.annotate(like_count=Count('liked_by', distinct=True))
+        qryset = filtering.order_by(qryset, vdata)
+        result = filtering.paginate(qryset, vdata, lambda qs: serializer(qs, user=user, many=True).data)
+        return Response(result, status=status.HTTP_200_OK)

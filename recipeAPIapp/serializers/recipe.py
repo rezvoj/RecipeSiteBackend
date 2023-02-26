@@ -408,3 +408,64 @@ class RatingUpdateSerializer(serializers.ModelSerializer):
     def update(self, instance: Rating, validated_data):
         instance.edited_at = utc_now()
         return super().update(instance, validated_data)
+
+
+class RatingAbstractData(serializers.ModelSerializer):
+    liked = serializers.SerializerMethodField()
+    like_count = serializers.IntegerField()
+
+    def __init__(self, *args, user: User, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+
+    class Meta:
+        model = Rating
+        fields = (
+            'id', 'photo', 'stars', 'content',
+            'created_at', 'edited_at',
+            'like_count', 'liked'
+        )
+
+    def get_liked(self, obj: Rating):
+        if isinstance(self.user, User):
+            return obj.liked_by.filter(pk=self.user.pk).exists()
+        return None
+
+
+class RatingRecipeData(RatingAbstractData):
+    user = user_serializers.UserSmallData()
+
+    class Meta:
+        model = Rating
+        fields = RatingAbstractData.Meta.fields + ('user',)
+
+
+class RatingUserData(RatingAbstractData):
+    recipe = RecipeSmallData()
+
+    class Meta:
+        model = Rating
+        fields = RatingAbstractData.Meta.fields + ('recipe',)
+
+
+class RatingData(RatingAbstractData):
+    user = user_serializers.UserSmallData()
+    recipe = RecipeSmallData()
+
+    class Meta:
+        model = Rating
+        fields = RatingAbstractData.Meta.fields + ('user', 'recipe')
+
+
+class RatingFilter(serializers.Serializer):
+    user = serializers.PrimaryKeyRelatedField(queryset=User.objects.filter(banned=False), required=False)
+    recipe = serializers.PrimaryKeyRelatedField(queryset=Recipe.objects.filter(submit_status=Statuses.ACCEPTED), required=False)
+    liked = serializers.BooleanField(default=False)
+    has_content = serializers.BooleanField(default=True)
+    search_string = serializers.CharField(required=False)
+    order_by = serializers.ListField(child=serializers.CharField(), required=False)
+    page = serializers.IntegerField(default=1, min_value=1)
+    page_size = serializers.IntegerField(default=20, min_value=1, max_value=100)
+
+    def validate_order_by(self, value):
+        return validation.order_by(value, ['like_count', 'created_at', 'stars'])

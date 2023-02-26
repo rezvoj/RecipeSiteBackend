@@ -51,6 +51,7 @@ urlpatterns = [
 
     path('rating/<int:id>', RecipeViews.RatingView.as_view()),
     path('rating/change-liked/<int:rating_id>', RecipeViews.RatingLikeView.as_view()),
+    path('rating/filter/paged', RecipeViews.RatingFilterView.as_view()),
 
 ]
 

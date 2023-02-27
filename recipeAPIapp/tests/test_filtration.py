@@ -560,3 +560,164 @@ class TestIngredientFilter(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['count'], 1)
         self.assertEqual(response.data['results'][0]['id'], self.tomato.pk)
+
+
+
+@override_settings(DEFAULT_FILE_STORAGE=media_utils.TEST_DEFAULT_FILE_STORAGE)
+@override_settings(MEDIA_ROOT=media_utils.TEST_MEDIA_ROOT)
+@override_settings(APP_ADMIN_CODE='TEST_ADMIN_CODE')
+class TestRatingFilter(APITestCase):
+
+    def setUp(self):
+        self.user1 = User.objects.create(email="user1@example.com", name="User One")
+        self.user_token = security.generate_token(self.user1)
+        self.user2 = User.objects.create(email="user2@example.com", name="User Two")
+        self.user3 = User.objects.create(email="user3@example.com", name="User Three")
+        self.user4 = User.objects.create(email="user4@example.com", name="User Four")
+        self.recipe1 = Recipe.objects.create(
+            user=self.user1, name="Pancakes", title="Fluffy Pancakes",
+            submit_status=SubmitStatuses.ACCEPTED, prep_time=20, calories=300
+        )
+        self.recipe2 = Recipe.objects.create(
+            user=self.user2, name="Smoothie", title="Fruit Smoothie",
+            submit_status=SubmitStatuses.ACCEPTED, prep_time=10, calories=150
+        )
+
+        """ Rating 1: 5 stars, content with 'great', has photo, by 2, 4 likes (1, 2, 3, 4) """
+        self.rating1 = Rating.objects.create(
+            user=self.user2, recipe=self.recipe1, stars=5, 
+            content="Great pancakes, very fluffy and tasty!", 
+            photo=media_utils.generate_test_image(),
+            created_at=utc_now() - timedelta(days=2)
+        )
+        self.rating1.liked_by.add(self.user1, self.user2, self.user3, self.user4)
+
+        """ Rating 2: 4 stars, no content, no photo, by 3, 0 likes """
+        self.rating2 = Rating.objects.create(
+            user=self.user3, recipe=self.recipe1, stars=4,
+            created_at=utc_now() - timedelta(days=4)
+        )
+
+        """ Rating 3: 3 stars, content with 'good', no photo, by 4, 1 like (1) """
+        self.rating3 = Rating.objects.create(
+            user=self.user4, recipe=self.recipe1, stars=3, 
+            content="Good, but could use more flavor.", 
+            created_at=utc_now() - timedelta(days=6)
+        )
+        self.rating3.liked_by.add(self.user1)
+
+        """ Rating 4: 5 stars, content with 'excellent', has photo, by 1, 2 likes (2, 3) """
+        self.rating4 = Rating.objects.create(
+            user=self.user1, recipe=self.recipe1, stars=5, 
+            content="Excellent recipe, a hit with the family.", 
+            photo=media_utils.generate_test_image(),
+            created_at=utc_now() - timedelta(days=8)
+        )
+        self.rating4.liked_by.add(self.user2, self.user3)
+
+        """ Rating 5: 4 stars, content with 'great', has photo, by 1, 3 likes (2, 3, 4) """
+        self.rating5 = Rating.objects.create(
+            user=self.user1, recipe=self.recipe2, stars=4, 
+            content="Great smoothie, very refreshing!", 
+            photo=media_utils.generate_test_image(),
+            created_at=utc_now() - timedelta(days=3)
+        )
+        self.rating5.liked_by.add(self.user2, self.user3, self.user4)
+
+        """ Rating 6: 2 stars, content with 'decent', no photo, by 3, 0 likes """
+        self.rating6 = Rating.objects.create(
+            user=self.user3, recipe=self.recipe2, stars=2, 
+            content="Decent taste, but not my favorite.", 
+            created_at=utc_now() - timedelta(days=5)
+        )
+
+        """ Rating 7: 3 stars, no content, no photo, by 2, 2 likes (1, 4) """
+        self.rating7 = Rating.objects.create(
+            user=self.user2, recipe=self.recipe2, stars=3,
+            created_at=utc_now() - timedelta(days=7)
+        )
+        self.rating7.liked_by.add(self.user1, self.user4)
+
+        """ Rating 8: 4 stars, content with 'great', has photo, by 4, 3 likes (1, 2, 3) """
+        self.rating8 = Rating.objects.create(
+            user=self.user4, recipe=self.recipe2, stars=4, 
+            content="Great smoothie, very healthy!", 
+            photo=media_utils.generate_test_image(),
+            created_at=utc_now() - timedelta(days=9)
+        )
+        self.rating8.liked_by.add(self.user1, self.user2, self.user3)
+
+
+    def tearDown(self):
+        media_utils.delete_test_media()
+
+
+    def test_recipe_data_filter(self):
+        headers = {'HTTP_AUTHORIZATION': f"Bearer {self.user_token}"}
+        params = {
+            'user': self.user2.pk,
+            'has_content': True,
+            'page': 1, 'page_size': 2
+        }
+        response: Response = self.client.get(f'/rating/filter/paged', params, format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['page'], 1)
+        self.assertEqual(response.data['count'], 1)
+        expected_result = {
+            'id': self.rating1.pk, 'photo': self.rating1.photo.url, 
+            'stars': 5, 'content': self.rating1.content, 
+            'created_at': self.rating1.created_at.isoformat(), 
+            'edited_at': None, 'like_count': 4, 'liked': True,
+            'recipe': {
+                'id': 1, 'photo': None, 'user': {
+                    'id': self.rating1.recipe.user.pk, 'photo': None, 'name': 'User One', 
+                    'created_at': self.rating1.recipe.user.created_at.isoformat()
+                }, 
+                'name': 'Pancakes', 'title': 'Fluffy Pancakes',
+                'prep_time': 20, 'calories': 300, 
+                'created_at': self.rating1.recipe.created_at.isoformat()
+            }
+        }
+        self.assertEqual(response.data['results'][0], expected_result)
+
+    
+    def test_user_data_filter(self):
+        headers = {'HTTP_AUTHORIZATION': f"Bearer {self.user_token}"}
+        params = {
+            'recipe': self.recipe1.pk,
+            'liked': True,
+            'order_by': ['created_at', '-like_count', '-stars'],
+            'page': 1, 'page_size': 5
+        }
+        response: Response = self.client.get(f'/rating/filter/paged', params, format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 2)
+        self.assertEqual(response.data['results'][0]['id'], self.rating3.pk)
+        self.assertEqual(response.data['results'][1]['id'], self.rating1.pk)
+        self.assertNotIn('recipe', response.data['results'][0])
+        self.assertNotIn('recipe', response.data['results'][1])
+        self.assertEqual(response.data['results'][0]['user']['id'], self.user4.pk)
+        expected_user = {
+            'id': self.user2.pk, 'photo': None, 'name': 'User Two', 
+            'created_at': self.user2.created_at.isoformat()
+        }
+        self.assertEqual(response.data['results'][1]['user'], expected_user)
+
+
+    def test_both_data_filter(self):
+        headers = {}
+        params = {
+            'liked': True,
+            'search_string': "great",
+            'order_by': ['-like_count', '-stars', '-created_at'],
+            'page': 1, 'page_size': 5
+        }
+        response: Response = self.client.get(f'/rating/filter/paged', params, format='json', **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 3)
+        self.assertEqual(response.data['results'][0]['id'], self.rating1.pk)
+        self.assertEqual(response.data['results'][1]['id'], self.rating5.pk)
+        self.assertEqual(response.data['results'][2]['id'], self.rating8.pk)
+        self.assertIsNone(response.data['results'][0]['liked'])
+        self.assertIn('user', response.data['results'][0])
+        self.assertIn('recipe', response.data['results'][0])

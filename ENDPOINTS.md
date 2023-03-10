@@ -167,3 +167,115 @@
       ]
     }
     ```
+
+## Authentication - /auth/:
+
+- **Regenerate JWT Token**: `POST /auth/token`
+    
+    - Receive new jwt token
+
+    _Roles_: User, Verified, Moderator
+    
+    _Response_:
+    ```json
+    {
+      "token": "generated_jwt_token"
+    }
+    ```
+
+- **Login**: `POST /auth/login`
+
+    - Receive new jwt token
+
+    _Roles_: All
+
+    _Request Body_:
+    ```json
+    {
+      "email": "John323@examplemail.com",
+      "password": "securEp4ssword645"
+    }
+    ```
+    _Response_:
+    ```json
+    {
+      "token": "generated_jwt_token"
+    }
+    ```
+
+- **Update Authentication Details**: `PUT /auth/update`
+    
+    - Updates password and (or) email
+    - Invalidates old tokens
+    - If email is updated resends verification email
+    - Receive new jwt token
+
+    _Roles_: User, Verified, Moderator
+
+    _Request Body_:
+    ```json
+    {
+      "password": "P4ssword5325",
+      // At least one must be provided:
+      "new_password": "newP4ssword5325",
+      "email": "newemail@example.com"
+    }
+    ```
+    _Response_:
+    ```json
+    {
+      "token": "generated_jwt_token"
+    }
+    ```
+
+- **Send Email Verification**: `POST /auth/email-verification`
+    
+    - Resends verification email with link to verify email
+    
+    _Roles_: User, Verified, Moderator
+
+- **Verify Email**: `PUT /auth/email-verification/<code>`
+    
+    - Confirms email using the verification code
+    
+    _Roles_: User, Verified, Moderator
+
+- **Send Password Reset Email**: `POST /auth/password-reset`
+    
+    - Sends email with link to reset password
+
+    _Roles_: All
+
+    _Request Body_:
+    ```json
+    {
+      "email": "John@examplemail.com"
+    }
+    ```
+
+- **Check Password Reset Code**: `GET /auth/password-reset/<user_id>/<code>`
+
+    - Checks if the provided password reset code is valid
+
+    _Roles_: All
+
+- **Reset Password**: `PUT /auth/password-reset/<user_id>/<code>`
+    
+    - Updates password
+    - Invalidates old tokens
+    - Receive new jwt token
+
+    _Roles_: All
+
+    _Request Body_:
+    ```json
+    {
+      "password": "newP4ssword424",
+    }
+    ```
+    _Response_:
+    ```json
+    {
+      "token": "generated_jwt_token"
+    }
+    ```

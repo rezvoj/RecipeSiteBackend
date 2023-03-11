@@ -279,3 +279,191 @@
       "token": "generated_jwt_token"
     }
     ```
+
+## Category - /category/:
+
+- **Create Category**: `POST /category`
+    
+    _Roles_: Admin, Moderator
+
+    _Request Body_:
+    ```json
+    {
+      "photo": <@file.jpg>,
+      "name": "Category Name",
+      "about": "A category." // Optional
+    }
+    ```
+
+- **Update Category**: `PUT /category/<category_id>`
+    
+    _Roles_: Admin, Moderator
+
+    _Request Body_:
+    ```json
+    {
+      "photo": <@file.jpg>,
+      "name": "New Category Name",
+      "about": "A new category."
+    }
+    ```
+
+- **Delete Category**: `DELETE /category/<category_id>`
+
+    _Roles_: Admin, Moderator (if the category isn't listed in any recipe)
+
+- **Toggle Category Favoured Status**: `POST /category/change-favourite/<category_id>`
+
+    - Adds the category to user's favourites and vice versa
+
+    _Roles_: Verified
+
+- **Filter and Search for Categories**: `GET /category/filter/paged`
+
+    - Filters and orders categories by criteria
+    - Receive paginated response
+
+    _Roles_: All
+
+    _Ordering Parameters_:
+    ```json
+    [
+      "name",
+      "recipe_count",
+      "self_recipe_count"
+    ]
+    ```
+    _Query Parameters_:
+    ```json
+    {
+      "favoured": false, // False -> All
+      "search_string": "Spanish",
+      "order_by": ["name", "-recipe_count"],
+      "order_time_window": 7, // In days
+      "page": 1,
+      "page_size": 50
+    }
+    ```
+    _Response_:
+    ```json
+    {
+      "count": 20, // From all pages
+      "page": 1,
+      "page_size": 50,
+      "results": [
+        {
+          "id": 1,
+          "photo": "URL/to/photo",
+          "name": "Category Name",
+          "about": "This is a category.",
+          "recipe_count": 20,
+          "self_recipe_count": 3,
+          "favoured": true
+        },
+        ...
+      ]
+    }
+    ```
+
+## Ingredient - /ingredient/:
+
+- **Create Ingredient**: `POST /ingredient`
+    
+    _Roles_: Admin, Moderator
+
+    _Request Body_:
+    ```json
+    {
+      "photo": <@file.jpg>,
+      "name": "Ingredient Name",
+      "unit": "g",
+      "about": "An ingredient." // Optional
+    }
+    ```
+
+- **Update Ingredient**: `PUT /ingredient/<ingredient_id>`
+    
+    _Roles_: Admin, Moderator
+
+    _Request Body_:
+    ```json
+    {
+      "photo": <@file.jpg>,
+      "name": "Ingredient New Name",
+      "unit": "Kg",
+      "about": "A new ingredient."
+    }
+    ```
+
+- **Delete Ingredient**: `DELETE /ingredient/<ingredient_id>`
+    
+    _Roles_: Admin, Moderator (if the ingredient isn't used in any recipe)
+
+- **Add Ingredient to Inventory**: `POST /ingredient/inventory/<ingredient_id>`
+
+    - Adds, adds amount, subtracts amount or removes ingredient from user's inventory
+    - Inventory is for searching recipes user has sufficient ingredients for
+
+    _Roles_: Verified
+
+    _Request Body_:
+    ```json
+    {
+      "amount": 10.50
+    }
+    ```
+
+- **Remove Ingredient from Inventory**: `DELETE /ingredient/inventory/<ingredient_id>`
+    
+    - Remove ingredient completely from user's inventory
+
+    _Roles_: Verified
+
+- **Filter and Search for Ingredients**: `GET /ingredient/filter/paged`
+
+    - Filters and orders ingredients by criteria
+    - Receive paginated response
+
+    _Roles_: All
+
+    _Ordering Parameters_:
+    ```json
+    [
+      "name", 
+      "recipe_count", 
+      "self_recipe_count"
+    ]
+    ```
+    _Query Parameters_:
+    ```json
+    {
+      "owned": false, // False -> All
+      "used": true, // False -> All
+      "search_string": "Red Tomato",
+      "order_by": ["-self_recipe_count", "name"],
+      "order_time_window": 7, // In days
+      "page": 1,
+      "page_size": 50
+    }
+    ```
+    _Response_:
+    ```json
+    {
+      "count": 43, // From all pages
+      "page": 1,
+      "page_size": 50,
+      "results": [
+        {
+          "id": 1,
+          "photo": "URL/to/photo",
+          "name": "Ingredient Name",
+          "unit": "Kg",
+          "about": "An ingredient.",
+          "self_recipe_count": 5,
+          "recipe_count": 20,
+          "self_amount": 1.50
+        },
+        ...
+      ]
+    }
+    ```

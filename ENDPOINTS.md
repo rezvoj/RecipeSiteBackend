@@ -467,3 +467,293 @@
       ]
     }
     ```
+
+## Recipe - /recipe/:
+
+- **Create Recipe**: `POST /recipe`
+
+    _Roles_: Verified
+
+    _Request Body_:
+    ```json
+    {
+      "categories": [1, 2], // List of IDs
+      "name": "Recipe Name",
+      "title": "Recipe Title",
+      "prep_time": 30,
+      "calories": 1350,
+    }
+    ```
+
+- **Update Recipe**: `PUT /recipe/<recipe_id>`
+    
+    _Roles_: Verified (creator of the recipe)
+
+    _Request Body_:
+    ```json
+    {
+      "categories": [2, 3], // List of IDs
+      "name": "Recipe New Name",
+      "title": "Recipe New Title",
+      "prep_time": 25,
+      "calories": 1500,
+    }
+    ```
+
+- **Delete Recipe**: `DELETE /recipe/<recipe_id>`
+
+    _Roles_: Verified (creator of the recipe)
+
+- **Add Recipe Photo**: `POST /recipe/photo/<recipe_id>`
+
+    _Roles_: Verified (creator of the recipe)
+
+    _Request Body_:
+    ```json
+    {
+      "photo": <@file.jpg>,
+      "number": 1,
+    }
+    ```
+
+- **Update Recipe Photo**: `PUT /recipe/photo/<photo_id>`
+    
+    _Roles_: Verified (creator of the recipe)
+
+    _Request Body_:
+    ```json
+    {
+      "photo": <@file.jpg>,
+      "number": 2,
+    }
+    ```
+
+- **Remove Recipe Photo**: `DELETE /recipe/photo/<photo_id>`
+
+    _Roles_: Verified (creator of the recipe)
+
+- **Add Recipe Instruction**: `POST /recipe/photo/<recipe_id>`
+
+    _Roles_: Verified (creator of the recipe)
+
+    _Request Body_:
+    ```json
+    {
+      "photo": <@file.jpg>,
+      "number": 1,
+      "title": "Instruction Title", 
+      "content": "Instruction Content"
+    }
+    ```
+
+- **Update Recipe Instruction**: `PUT /recipe/instruction/<instruction_id>`
+
+    _Roles_: Verified (creator of the recipe)
+
+    _Request Body_:
+    ```json
+    {
+      "photo": <@file.jpg>,
+      "number": 2,
+      "title": "New Instruction Title", 
+      "content": "New Instruction Content"
+    }
+    ```
+
+- **Remove Recipe Instruction**: `DELETE /recipe/instruction/<instruction_id>`
+
+    _Roles_: Verified (creator of the recipe)
+
+- **Add Ingredient to Recipe**: `POST /recipe/ingredient/<recipe_id>/<ingredient_id>`
+
+    - Adds, adds amount, subtracts amount or removes ingredient from recipe
+
+    _Roles_: Verified (creator of the recipe)
+
+    _Request Body_:
+    ```json
+    {
+      "amount": 10.50
+    }
+    ```
+
+- **Remove Ingredient from Recipe**: `DELETE /recipe/ingredient/<recipe_id>/<ingredient_id>`
+
+    - Remove ingredient completely from recipe
+
+    _Roles_: Verified (creator of the recipe)
+
+- **Submit Recipe**: `PUT /recipe/submit/<recipe_id>`
+
+    - Checks if needed instruction etc. are present and recipe is unsubmitted
+    - Submits recipe to be accepted or denied by moderators
+    - If submitted by moderator then gets automatically accepted
+
+    _Roles_: Verified (creator of the recipe)
+
+- **Accept Recipe Submission**: `PUT /recipe/accept/<recipe_id>`
+
+    - Makes recipe publicly visible 
+
+    _Roles_: Admin, Moderator
+
+- **Deny Recipe Submission**: `PUT /recipe/deny/<recipe_id>`
+
+    - Removes recipe from submitted to be edited
+
+    _Roles_: Admin, Moderator
+
+- **"Cook" Recipe**: `POST /recipe/cook/<recipe_id>`
+    
+    - Removes amount of ingredients needed to cook the recipe from the user's ingredient inventory
+
+    _Roles_: Verified
+
+    _Request Body_:
+    ```json
+    {
+      "servings": 3 // Optional
+    }
+    ```
+
+- **Toggle Recipe Favoured Status**: `POST /recipe/change-favourite/<recipe_id>`
+    
+    - Adds the recipe to user's favourites and vice versa
+
+    _Roles_: Verified
+
+- **Get Recipe Detail**: `GET /recipe/detail/<recipe_id>`
+
+    - Receive detail of visible recipe
+
+    _Roles_: All
+
+    _Response_:
+    ```json
+    {
+      "id": 2,
+      "submit_status": 1,
+      "deny_message": null,
+      "user": {
+        "id": 1,
+        "photo": "URL/to/photo",
+        "name": "Jane",
+        "created_at": "2023-03-11T00:00:00Z",
+      },
+      "name": "Recipe Name",
+      "title": "Recipe Title",
+      "prep_time": 25,
+      "calories": 1240,
+      "created_at": "2023-07-11T00:00:00Z",
+      "rating_count": 1355,
+      "avg_rating": 3.24,
+      "favoured": false,
+      "photo": "URL/to/photo",
+      "cookable_portions": 3,
+      "favoured_count": 124,
+      "categories": [
+        {
+          "id": 1,
+          "photo": "URL/to/photo",
+          "name": "Italian",
+        },
+        ...
+      ],
+      "ingredients": [
+        {
+          "ingredient": {
+            "id": 2,
+            "photo": ,
+            "unit": "Kg",
+            "name": "Tomatoes"
+          },
+          "amount": 10.50
+        },
+        ...
+      ],
+      "photos": [
+        {
+          "id": 1,
+          "photo": "URL/to/photo"
+        },
+        ...
+      ],
+      "instructions": [
+        {
+          "id": 1,
+          "photo": "URL/to/photo",
+          "title": "Title of instruction",
+          "content": "Content of instruction"
+        },
+        ...
+      ],
+    }
+    ```
+
+- **Filter and Search for Recipes**: `GET /recipe/filter/paged`
+
+    - Filters and orders visible recipes by criteria
+    - Receive paginated response
+
+    _Roles_: All
+
+    _Ordering Parameters_:
+    ```json
+    [
+      "name", 
+      "rating_count", 
+      "avg_rating", 
+      "prep_time", 
+      "calories", 
+      "created_at"
+    ]
+    ```
+    _Query Parameters_:
+    ```json
+    {
+      "categories": [1, 4, 65, 221], // List IDs, has to have all
+      "user": 234,
+      "calories_limit": 112,
+      "servings": 12, // For calories_limit and sufficient_ingredients
+      "prep_time_limit": 30,
+      "favourite_category": false, // False -> All
+      "sufficient_ingredients": false, // False -> All, inventory items
+      "favoured": true, // False -> All
+      "search_string": "Italian Pizza",
+      "order_by": ["name", "-created_at"],
+      "order_time_window": 7, // In days
+      "page": 1,
+      "page_size": 25
+    }
+    ```
+    _Response_:
+    ```json
+    {
+      "count": 50, // From all pages
+      "page": 1,
+      "page_size": 25,
+      "results": [
+        {
+          "id": 2,
+          "submit_status": 1,
+          "deny_message": null,
+          "user": {
+            "id": 1,
+            "photo": "URL/to/photo",
+            "name": "Jane",
+            "created_at": "2023-03-11T00:00:00Z",
+          },
+          "name": "Recipe Name",
+          "title": "Recipe Title",
+          "prep_time": 25,
+          "calories": 1240,
+          "created_at": "2023-07-11T00:00:00Z",
+          "rating_count": 1355,
+          "avg_rating": 3.24,
+          "favoured": false,
+          "photo": "URL/to/photo",
+        },
+        ...
+      ]
+    }
+    ```

@@ -757,3 +757,114 @@
       ]
     }
     ```
+
+## Rating - /rating/:
+
+- **Create Rating**: `POST /rating/<recipe_id>`
+    
+    _Roles_: Verified
+
+    _Request Body_:
+    ```json
+    {
+      "photo": <@file.jpg>, // Optional
+      "stars": 5,
+      "content": "I really liked this.", // Optional
+    }
+    ```
+
+- **Update Rating**: `PUT /rating/<rating_id>`
+    
+    _Roles_: Verified (creator of the rating)
+
+    _Request Body_:
+    ```json
+    {
+      "photo": <@file.jpg>,
+      "stars": 1,
+      "content": "I really disliked this.",
+    }
+    ```
+
+- **Delete Rating**: `DELETE /rating/<rating_id>`
+    
+    _Roles_: Verified (creator of the rating)
+
+- **Toggle Rating Liked Status**: `POST /rating/change-liked/<rating_id>`
+    
+    - Likes or unlikes rating
+
+    _Roles_: User, Verified, Moderator
+
+- **Filter and Search for Ratings**: `GET /rating/filter/paged`
+
+    - Filters and orders visible ratings by criteria
+    - Receive paginated response
+
+    _Roles_: All
+
+    _Ordering Parameters_:
+    ```json
+    [
+      "like_count",
+      "created_at",
+      "stars"
+    ]
+    ```
+    _Query Parameters_:
+    ```json
+    {
+      "user": 1,
+      "recipe": 44, // Accepted only
+      "commented": true, // False -> All
+      "has_content": true, // False -> All
+      "search_string": "Disliked pizza",
+      "order_by": ["-like_count", "created_at"],
+      "page": 1,
+      "page_size": 25
+    }
+    ```
+    _Response_:
+    ```json
+    {
+      "count": 13, // From all pages
+      "page": 1,
+      "page_size": 20,
+      "results": [
+        {
+          "id": 131,
+          "photo": "URL/to/photo",
+          "stars": 2,
+          "content": "Content",
+          "created_at": "2011-10-05T14:48:00.000Z", 
+          "edited_at": "2017-10-05T14:48:00.000Z", 
+          "like_count": 131, 
+          "liked": false,
+          // If user is not specified:
+          "user": {
+              "id": 2,
+              "photo": "URL/to/photo",
+              "name": "John",
+              "created_at": "2022-05-12T04:00:00Z",
+            },
+          // If recipe is not specified:
+          "recipe": {
+            "id": 2,
+            "photo": "URL/to/photo",
+            "user": {
+              "id": 1,
+              "photo": "URL/to/photo",
+              "name": "Jane",
+              "created_at": "2023-03-11T00:00:00Z",
+            },
+            "name": "Recipe Name",
+            "title": "Recipe Title",
+            "prep_time": 25,
+            "calories": 1240,
+            "created_at": "2023-07-11T00:00:00Z",
+          },
+        },
+        ...
+      ]
+    }
+    ```

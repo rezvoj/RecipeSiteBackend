@@ -1,6 +1,6 @@
 # Recipe Site Backend in Django Rest Framework
 
-> ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python Version](https://img.shields.io/badge/python-3.11-blue)
+![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python Version](https://img.shields.io/badge/python-3.11-blue)
 
 
 ## Table of Contents

@@ -109,7 +109,7 @@ Error codes and messages returned by the API.
       "detail": {
         "name": ["has to be longer then 3 characters."],
         "non_field_errors": ["invalid email or password."],
-        ...
+        "...": "..."
       }
     }
     ```

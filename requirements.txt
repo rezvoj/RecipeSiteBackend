@@ -1,4 +1,4 @@
-django
-djangorestframework
-pyjwt
-pillow
+django~=4.2.0
+djangorestframework~=3.14.0
+pyjwt~=2.8.0
+pillow~=10.1.0

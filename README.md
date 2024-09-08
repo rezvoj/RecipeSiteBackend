@@ -1,4 +1,4 @@
-# Recipe Site Backend in Django Rest Framework
+# NorecipesAPI in Django Rest Framework
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python Version](https://img.shields.io/badge/python-3.11-blue)
 
@@ -22,7 +22,7 @@ This project is a REST API for a food recipe content-based site. It offers authe
 
 ## Dependencies
 
-Ensure you're using Python version 3.11 or higher.
+Ensure you're using Python version 3.12.
 
 Install the required dependencies with:
 ```bash
@@ -42,8 +42,8 @@ To get the project started, follow the steps below:
 
 1. Clone the repository and navigate to the project directory:
     ```bash
-    git clone https://github.com/rezvoj/RecipeSiteBackend.git
-    cd RecipeSiteBackend
+    git clone https://github.com/rezvoj/NorecipesAPI.git
+    cd NorecipesAPI
     ```
 
 2. *(Optional)* Run the tests:
@@ -51,7 +51,7 @@ To get the project started, follow the steps below:
     python manage.py test
     ```
 
-3. Configure the application's database, media backend and other stuff in [**`settings.py`**](recipeAPI/settings.py) and [**`apps.py`**](recipeAPIapp/apps.py).
+3. Configure the application's database, media backend and other stuff in [**`settings.py`**](NorecipesAPI/settings.py) and [**`apps.py`**](NorecipesAPIapp/apps.py).
 
 4. If you choose to continue with the default local setup for media and database, you will need to create `media` and `database` directories in the base directory:
     ```bash
@@ -61,7 +61,7 @@ To get the project started, follow the steps below:
 
 5. Set up database schema:
     ```bash
-    python manage.py migrate recipeAPIapp
+    python manage.py migrate NorecipesAPIapp
     ```
 
 6. Ensure all necessary environmental variables like `APP_SECRET_KEY` and `APP_ADMIN_CODE` are set.
@@ -73,7 +73,7 @@ To get the project started, follow the steps below:
 
 8. Run the application in a production environment (using Gunicorn as a WSGI server):
     ```bash
-    gunicorn --workers 3 --bind 0.0.0.0:$PORT_NUMBER recipeAPI.wsgi:application
+    gunicorn --workers 3 --bind 0.0.0.0:$PORT_NUMBER NorecipesAPI.wsgi:application
     ```
 
 
@@ -83,7 +83,7 @@ To get the project started, follow the steps below:
 - **User**: Valid jwt user token provided in authorization header.
 - **Verified**: User that has successfully verified his email address.
 - **Moderator**: User that has been named moderator by administrator
-- **Admin**: Valid 'ADMINCODE' authorization header mathing the one in [**`settings.py`**](recipeAPI/settings.py).
+- **Admin**: Valid 'ADMINCODE' authorization header mathing the one in [**`settings.py`**](NorecipesAPI/settings.py).
 
 
 ## Endpoints

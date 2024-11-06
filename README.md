@@ -1,173 +1,136 @@
-# NorecipesAPI in Django Rest Framework
+# NorecipesAPI
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python Version](https://img.shields.io/badge/python-3.11-blue)
+![Python](https://img.shields.io/badge/python-3.12-blue) ![Django](https://img.shields.io/badge/django-4.2-darkgreen) ![DRF](https://img.shields.io/badge/DRF-3.15-red)
 
-
-## Table of Contents
-
-- [Introduction](#introduction)
-- [Dependencies](#dependencies)
-- [Installation](#installation)
-- [Roles](#roles)
-- [Endpoints](#endpoints)
-- [Error Codes](#error-codes)
-- [Usage](#usage)
-- [License](#license)
+A REST API backend for a food recipe site, built in Django Rest Framework. Supports user accounts with email verification, recipe publishing with a moderation queue, an ingredient inventory system, and a search layer that can filter recipes by how many servings the user can actually cook from their current inventory.
 
 
-## Introduction
+## Highlights
 
-This project is a REST API for a food recipe content-based site. It offers authentication and email verification, content publishing and moderation, various features such as managing your ingredient inventory, advanced searching and filtering (e.g., searching for recipes that the user has sufficient quantities of ingredients for), and other functionalities.
+- **Custom JWT authentication** with `details_iteration` token invalidation on credential change (no token blacklist table needed).
+- **Recipe moderation workflow** — unsubmitted → submitted → accepted/denied with deny reasons; auto-accept for moderator-authored recipes.
+- **Inventory-aware recipe search** — given a user's pantry, find recipes they can cook *enough portions of*, computed in a single annotated query (`Subquery` + `ExpressionWrapper` + `Min` aggregation).
+- **Generic AND/OR substring search** across multiple fields with light morphological normalization (strip `'s`, plural `s`).
+- **Time-windowed ordering** — sort by "popularity in the last N days" via dynamic queryset annotation rewrites.
+- **Role-based permission system** (Anon / User / Verified / Moderator / Admin) with role-gated query parameters (e.g. `submit_status` filter accepts different values per role).
+- **Rate-limited content creation** — per-user, per-resource, per-time-window limits enforced at the serializer layer.
+- **222 tests**, runs against in-memory SQLite locally, Postgres in Docker.
 
 
-## Dependencies
+## Stack
 
-Ensure you're using Python version 3.12.
+| Layer | Choice |
+| --- | --- |
+| Language | Python 3.12 |
+| Framework | Django 4.2 (LTS) + Django REST Framework 3.15 |
+| Database | Postgres 16 in Docker; SQLite fallback for local dev/tests |
+| Auth | Custom JWT (PyJWT) over Django's `PBKDF2PasswordHasher` |
+| Image handling | Pillow |
+| File storage | Local filesystem; pluggable S3-compatible backend via `django-storages` |
+| WSGI server | Gunicorn |
+| Container | Docker + Docker Compose |
 
-Install the required dependencies with:
+
+## Running it
+
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/rezvoj/NorecipesAPI.git
+cd NorecipesAPI
+cp .env.example .env  # edit secrets before exposing publicly
+docker compose up --build
 ```
 
-Dependencies used:
-- Django
-- Django Rest Framework
-- PyJWT
-- Pillow
+API is available at `http://localhost:8000/`. Media files served from `/media/` when using local storage.
+
+### Local dev without Docker
+
+```bash
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py runserver
+```
+
+Falls back to SQLite when `DATABASE_URL` is unset.
+
+### Tests
+
+```bash
+python manage.py test
+```
 
 
-## Installation
+## Configuration
 
-To get the project started, follow the steps below:
+All runtime configuration is read from environment variables — see [`.env.example`](.env.example) for the full list. Highlights:
 
-1. Clone the repository and navigate to the project directory:
-    ```bash
-    git clone https://github.com/rezvoj/NorecipesAPI.git
-    cd NorecipesAPI
-    ```
+- `DATABASE_URL` — Postgres connection string; absent = local SQLite.
+- `APP_USE_S3` — toggle S3-compatible storage; pair with `AWS_*` vars (works with AWS, MinIO, etc.).
+- `APP_LOG_HANDLER` — dotted path to any `logging.Handler` subclass, with kwargs in `APP_LOG_HANDLER_OPTIONS` (JSON). Default is stdout; production can point at syslog, HTTP, Sentry, etc., without code changes.
+- `APP_EMAIL_BACKEND` — `console` (dev) or `smtp` (prod).
 
-2. *(Optional)* Run the tests:
-    ```bash
-    python manage.py test
-    ```
 
-3. Configure the application's database, media backend and other stuff in [**`settings.py`**](NorecipesAPI/settings.py) and [**`apps.py`**](NorecipesAPIapp/apps.py).
+## Architecture
 
-4. If you choose to continue with the default local setup for media and database, you will need to create `media` and `database` directories in the base directory:
-    ```bash
-    mkdir media
-    mkdir database
-    ```
-
-5. Set up database schema:
-    ```bash
-    python manage.py migrate NorecipesAPIapp
-    ```
-
-6. Ensure all necessary environmental variables like `APP_SECRET_KEY` and `APP_ADMIN_CODE` are set.
-
-7. Run the development server (for local testing and development):
-    ```bash
-    python manage.py runserver $PORT_NUMBER
-    ```
-
-8. Run the application in a production environment (using Gunicorn as a WSGI server):
-    ```bash
-    gunicorn --workers 3 --bind 0.0.0.0:$PORT_NUMBER NorecipesAPI.wsgi:application
-    ```
+```
+NorecipesAPI/        # Django project (settings, root URLs)
+NorecipesAPIapp/
+├── models/          # User, Recipe, Category, Ingredient, Rating, etc.
+├── serializers/     # DRF serializers + filter param schemas
+├── views/           # APIView classes
+├── utils/
+│   ├── security.py     # JWT + password hashing + auth backend
+│   ├── permission.py   # Role helpers (user / verified / admin / mod)
+│   ├── validation.py   # Photo verification, ordering whitelist, rate limiting
+│   ├── filtering.py    # Reusable search, order_by, paginate helpers
+│   ├── verification.py # Email + password reset code flows
+│   └── exception.py    # Custom exception → HTTP response mapping
+└── tests/           # 222 tests covering auth, CRUD, filtration, moderation
+```
 
 
 ## Roles
 
-- **Anon**: Jwt user token invalid or not provided in authorization header.
-- **User**: Valid jwt user token provided in authorization header.
-- **Verified**: User that has successfully verified his email address.
-- **Moderator**: User that has been named moderator by administrator
-- **Admin**: Valid 'ADMINCODE' authorization header mathing the one in [**`settings.py`**](NorecipesAPI/settings.py).
+| Role | Means |
+| --- | --- |
+| **Anon** | No JWT or invalid JWT. |
+| **User** | Valid JWT in `Authorization: Bearer <token>`. |
+| **Verified** | User who completed email verification. Required to publish content. |
+| **Moderator** | User flagged as moderator by an admin. Can accept/deny recipes, ban users. |
+| **Admin** | Holds the configured `ADMINCODE` in request headers. Out-of-band trust, not a user account. |
 
 
-## Endpoints
+## API
 
-- **Endpoints**: The API provides a variety of endpoints. For detailed information about each endpoint, please refer to the [ENDPOINTS](ENDPOINTS.md) file.
+Full endpoint reference: [ENDPOINTS.md](ENDPOINTS.md).
 
-- **Media Serving**: When using the default local media storage settings, media files are served with the `/media/` URL prefix.
+### Examples
 
-- **Date and Time Handling**: All datetime values returned by the API are in UTC. Any datetime values received by the API are also expected to be in UTC.
-
-
-## Error Codes
-
-Error codes and messages returned by the API.
-
-- **Http 400 Bad Request**:
-
-    - Any type of invalid data in request body or query parameters
-
-    _Response_:
-    ```json
-    {
-      "detail": {
-        "name": ["has to be longer then 3 characters."],
-        "non_field_errors": ["invalid email or password."],
-        "...": "..."
-      }
-    }
-    ```
-    
-    - User has reached the limit for creating certain content
-
-    _Response_:
-    ```json
-    {
-      "detail": {
-        "limit": 10, 
-        "hours": 1
-      }
-    }
-    ```
-
-- **Http 401 Unauthorized**:
-
-    - User does not have permission to access this endpoint 
-
-- **Http 403 Forbidden**:
-
-    - User has been banned by admin or moderator 
-
-    _Response_:
-    ```json
-    {
-      "detail": "You have been banned."
-    }
-    ```
-
-- **Http 404 Not Found**:
-
-    - Object referenced by path id does not exist, or user does not have rights for it
-
-
-## Usage
-
-Examples on how to use the API.
-
-### Requesting Details for Recipe
-
+Fetch a recipe (Authorization optional but enriches the response with `favoured`, `cookable_portions`, etc.):
 ```bash
-curl -X GET http://localhost:8080/recipe/detail/23 \ 
+curl -X GET http://localhost:8000/recipe/detail/23 \
     -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
-### Creating Rating for Recipe
-
+Rate a recipe:
 ```bash
-curl -X POST http://localhost:8080/rating/3 \ 
-    -H "Authorization: Bearer YOUR_JWT_TOKEN" \ 
-    -F "photo=@path/to/file.jpg" \ 
-    -F "stars=5" \ 
+curl -X POST http://localhost:8000/rating/3 \
+    -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+    -F "photo=@path/to/file.jpg" \
+    -F "stars=5" \
     -F "content=I really liked this."
 ```
 
+### Date/time convention
 
-## License
+The API uses **naive UTC** datetimes throughout — both inputs and outputs are ISO 8601 without timezone suffix (e.g. `2023-07-11T14:30:00`). Inputs with `Z` or numeric offsets are rejected. Clients are expected to normalize to UTC before sending.
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Error responses
+
+| Status | Cause | Body |
+| --- | --- | --- |
+| 400 | Validation error | `{"detail": {"field_name": ["message", ...], ...}}` |
+| 400 | Content rate limit exceeded | `{"detail": {"limit": 10, "hours": 1}}` |
+| 401 | Missing/insufficient permissions | `{}` |
+| 403 | User is banned | `{"detail": "You have been banned."}` |
+| 404 | Resource not found or not accessible to caller | `{}` |

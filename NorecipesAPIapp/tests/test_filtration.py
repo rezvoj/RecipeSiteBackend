@@ -966,10 +966,10 @@ class TestRecipeFilter(APITestCase):
         self.assertEqual(response.data['results'][1]['id'], self.recipe1.pk)
 
 
-    def test_sufficient_ingrediens(self):
+    def test_sufficient_ingredients(self):
         headers = {'HTTP_AUTHORIZATION': f"Bearer {self.user_token}"}
         params = {
-            'favoured': True, 'sufficient_ingrediens': True, 
+            'favoured': True, 'sufficient_ingredients': True, 
             'servings': 3, 'order_by': ['name'],
             'page': 1, 'page_size': 5
         }

@@ -15,7 +15,7 @@
       "email": "user@email.com",
       "name": "User Name",
       "about": "Brief about the user", // Optional
-      "password": "securEp4ssword23",
+      "password": "securEp4ssword23"
     }
     ```
     _Response_:
@@ -149,7 +149,7 @@
     {
       "count": 20, // From all pages
       "page": 1,
-      "page_size": 25,
+      "page_size": 10,
       "results": [
         {
           "id": 1,
@@ -270,7 +270,7 @@
     _Request Body_:
     ```json
     {
-      "password": "newP4ssword424",
+      "password": "newP4ssword424"
     }
     ```
     _Response_:
@@ -390,14 +390,14 @@
     {
       "photo": <@file.jpg>,
       "name": "Ingredient New Name",
-      "unit": "Kg",
+      "unit": "kg",
       "about": "A new ingredient."
     }
     ```
 
 - **Delete Ingredient**: `DELETE /ingredient/<ingredient_id>`
     
-    _Roles_: Admin, Moderator (if the ingredient isn't used in any recipe)
+    - _Roles_: Admin, Moderator (if the ingredient isn't used in any recipe)
 
 - **Add Ingredient to Inventory**: `POST /ingredient/inventory/<ingredient_id>`
 
@@ -457,7 +457,7 @@
           "id": 1,
           "photo": "URL/to/photo",
           "name": "Ingredient Name",
-          "unit": "Kg",
+          "unit": "kg",
           "about": "An ingredient.",
           "self_recipe_count": 5,
           "recipe_count": 20,
@@ -481,7 +481,7 @@
       "name": "Recipe Name",
       "title": "Recipe Title",
       "prep_time": 30,
-      "calories": 1350,
+      "calories": 1350
     }
     ```
 
@@ -496,7 +496,7 @@
       "name": "Recipe New Name",
       "title": "Recipe New Title",
       "prep_time": 25,
-      "calories": 1500,
+      "calories": 1500
     }
     ```
 
@@ -512,7 +512,7 @@
     ```json
     {
       "photo": <@file.jpg>,
-      "number": 1,
+      "number": 1
     }
     ```
 
@@ -524,7 +524,7 @@
     ```json
     {
       "photo": <@file.jpg>,
-      "number": 2,
+      "number": 2
     }
     ```
 
@@ -532,7 +532,7 @@
 
     _Roles_: Verified (creator of the recipe)
 
-- **Add Recipe Instruction**: `POST /recipe/photo/<recipe_id>`
+- **Add Recipe Instruction**: `POST /recipe/instruction/<recipe_id>`
 
     _Roles_: Verified (creator of the recipe)
 
@@ -632,13 +632,13 @@
     ```json
     {
       "id": 2,
-      "submit_status": 1,
+      "submit_status": "ACCEPTED",
       "deny_message": null,
       "user": {
         "id": 1,
         "photo": "URL/to/photo",
         "name": "Jane",
-        "created_at": "2023-03-11T00:00:00Z",
+        "created_at": "2023-03-11T00:00:00Z"
       },
       "name": "Recipe Name",
       "title": "Recipe Title",
@@ -655,7 +655,7 @@
         {
           "id": 1,
           "photo": "URL/to/photo",
-          "name": "Italian",
+          "name": "Italian"
         },
         ...
       ],
@@ -663,8 +663,8 @@
         {
           "ingredient": {
             "id": 2,
-            "photo": ,
-            "unit": "Kg",
+            "photo": "URL/to/photo",
+            "unit": "kg",
             "name": "Tomatoes"
           },
           "amount": 10.50
@@ -686,7 +686,7 @@
           "content": "Content of instruction"
         },
         ...
-      ],
+      ]
     }
     ```
 
@@ -713,6 +713,7 @@
     {
       "categories": [1, 4, 65, 221], // List IDs, has to have all
       "user": 234,
+      "submit_status": "ACCEPTED", // Optional, role-gated
       "calories_limit": 112,
       "servings": 12, // For calories_limit and sufficient_ingredients
       "prep_time_limit": 30,
@@ -735,13 +736,13 @@
       "results": [
         {
           "id": 2,
-          "submit_status": 1,
+          "submit_status": "ACCEPTED",
           "deny_message": null,
           "user": {
             "id": 1,
             "photo": "URL/to/photo",
             "name": "Jane",
-            "created_at": "2023-03-11T00:00:00Z",
+            "created_at": "2023-03-11T00:00:00Z"
           },
           "name": "Recipe Name",
           "title": "Recipe Title",
@@ -751,7 +752,7 @@
           "rating_count": 1355,
           "avg_rating": 3.24,
           "favoured": false,
-          "photo": "URL/to/photo",
+          "photo": "URL/to/photo"
         },
         ...
       ]
@@ -769,7 +770,7 @@
     {
       "photo": <@file.jpg>, // Optional
       "stars": 5,
-      "content": "I really liked this.", // Optional
+      "content": "I really liked this." // Optional
     }
     ```
 
@@ -782,7 +783,7 @@
     {
       "photo": <@file.jpg>,
       "stars": 1,
-      "content": "I really disliked this.",
+      "content": "I really disliked this."
     }
     ```
 
@@ -816,7 +817,7 @@
     {
       "user": 1,
       "recipe": 44, // Accepted only
-      "commented": true, // False -> All
+      "liked": false, // False -> All
       "has_content": true, // False -> All
       "search_string": "Disliked pizza",
       "order_by": ["-like_count", "created_at"],
@@ -829,7 +830,7 @@
     {
       "count": 13, // From all pages
       "page": 1,
-      "page_size": 20,
+      "page_size": 25,
       "results": [
         {
           "id": 131,
@@ -842,11 +843,11 @@
           "liked": false,
           // If user is not specified:
           "user": {
-              "id": 2,
-              "photo": "URL/to/photo",
-              "name": "John",
-              "created_at": "2022-05-12T04:00:00Z",
-            },
+            "id": 2,
+            "photo": "URL/to/photo",
+            "name": "John",
+            "created_at": "2022-05-12T04:00:00Z"
+          },
           // If recipe is not specified:
           "recipe": {
             "id": 2,
@@ -855,14 +856,14 @@
               "id": 1,
               "photo": "URL/to/photo",
               "name": "Jane",
-              "created_at": "2023-03-11T00:00:00Z",
+              "created_at": "2023-03-11T00:00:00Z"
             },
             "name": "Recipe Name",
             "title": "Recipe Title",
             "prep_time": 25,
             "calories": 1240,
-            "created_at": "2023-07-11T00:00:00Z",
-          },
+            "created_at": "2023-07-11T00:00:00Z"
+          }
         },
         ...
       ]

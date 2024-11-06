@@ -65,12 +65,12 @@ class IngredientSerializer(serializers.ModelSerializer):
 
 
 class AmountSerializer(serializers.Serializer):
-    amount = serializers.DecimalField(max_digits=5, decimal_places=2)
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2)
 
 
 class AmountValueSerializer(serializers.Serializer):
     amount = serializers.DecimalField(
-        max_digits = 5, 
+        max_digits = 10, 
         decimal_places = 2,
         min_value = Decimal('0.01')
     )

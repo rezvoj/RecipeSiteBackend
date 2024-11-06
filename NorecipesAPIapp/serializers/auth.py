@@ -1,20 +1,24 @@
 from django.contrib.auth import password_validation
+from django.contrib.auth.hashers import PBKDF2PasswordHasher, make_password
 from rest_framework import serializers
 import NorecipesAPIapp.utils.security as security
 import NorecipesAPIapp.utils.verification as verification
 from NorecipesAPIapp.models.user import User
+
+_DUMMY_PASSWORD_HASH = make_password("dummy-password")
 
 
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
-    
+
     def validate(self, data):
         data = super().validate(data)
         try:
             user = User.objects.get(email=data['email'])
         except User.DoesNotExist:
+            PBKDF2PasswordHasher().verify(data['password'], _DUMMY_PASSWORD_HASH)
             raise serializers.ValidationError("invalid email or password.")
         if not security.check_password(user, data['password']):
             raise serializers.ValidationError("invalid email or password.")
@@ -115,6 +119,5 @@ class CompletePasswordResetSerializer(CheckPasswordResetSerializer):
 
     def validate(self, data):
         data = super().validate(data)
-        self.validate_user_and_code(data)
         password_validation.validate_password(data['password'])
         return data

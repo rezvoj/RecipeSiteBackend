@@ -344,7 +344,7 @@ class RecipeFilter(serializers.Serializer):
     servings = serializers.IntegerField(default=1, min_value=1)
     prep_time_limit = serializers.IntegerField(required=False, min_value=0)
     favourite_category = serializers.BooleanField(default=False)
-    sufficient_ingrediens = serializers.BooleanField(default=False)
+    sufficient_ingredients = serializers.BooleanField(default=False)
     favoured = serializers.BooleanField(default=False)
     search_string = serializers.CharField(required=False)
     order_by = serializers.ListField(child=serializers.CharField(), required=False)

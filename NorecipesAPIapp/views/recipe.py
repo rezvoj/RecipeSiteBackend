@@ -262,7 +262,7 @@ class RecipeFilterView(APIView):
                 qryset = qryset.filter(categories__in=Category.objects.filter(favoured_by=user)).distinct()
             if vdata['favoured']:
                 qryset = qryset.filter(favoured_by=user)
-            if vdata['sufficient_ingrediens']:
+            if vdata['sufficient_ingredients']:
                 servings_value = Value(vdata['servings'], output_field=DecimalField())
                 expression = ExpressionWrapper(OuterRef('amount') * servings_value, output_field=DecimalField())
                 subq = UserIngredient.objects.filter(user=user, ingredient=OuterRef('ingredient'), amount__gte=expression)

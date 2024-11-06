@@ -7,23 +7,28 @@ from NorecipesAPIapp.models.categorical import Category, Ingredient
 
 
 
-class SubmitStatuses:
-    UNSUBMITTED = 'UNSUBMITTED'
-    SUBMITTED = 'SUBMITTED'
-    DENIED = 'DENIED'
-    ACCEPTED = 'ACCEPTED'
+class SubmitStatuses(models.TextChoices):
+    UNSUBMITTED = 'UNSUBMITTED', 'Unsubmitted'
+    SUBMITTED = 'SUBMITTED', 'Submitted'
+    DENIED = 'DENIED', 'Denied'
+    ACCEPTED = 'ACCEPTED', 'Accepted'
 
 
 class Recipe(Timestamped):
     favoured_by = models.ManyToManyField(User, related_name='fav_recipes')
     categories = models.ManyToManyField(Category, related_name='recipes')
-    submit_status = models.CharField(default=SubmitStatuses.UNSUBMITTED, max_length=20)
+    submit_status = models.CharField(max_length=20, choices=SubmitStatuses.choices, default=SubmitStatuses.UNSUBMITTED)
     deny_message = models.CharField(max_length=300, blank=True, null=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='recipe')
     name = models.CharField(max_length=75, validators=[MinLengthValidator(2)])
     title = models.CharField(max_length=200, validators=[MinLengthValidator(10)])
     prep_time = models.IntegerField(validators=[MinValueValidator(0)])
     calories = models.IntegerField(validators=[MinValueValidator(0)])
+    class Meta:
+        indexes = [
+            models.Index(fields=['submit_status', '-created_at']),
+            models.Index(fields=['user', '-created_at']),
+        ]
 
 
 class RecipePhoto(models.Model):
@@ -43,7 +48,7 @@ class RecipeInstruction(models.Model):
 class RecipeIngredient(models.Model):
     recipe = models.ForeignKey(Recipe, on_delete=models.CASCADE, related_name='recipeingredient')
     ingredient = models.ForeignKey(Ingredient, on_delete=models.CASCADE, related_name='recipeingredient')
-    amount = models.DecimalField(max_digits=5, decimal_places=2, validators=[MinValueValidator(Decimal('0.01'))])
+    amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(Decimal('0.01'))])
     class Meta:
         unique_together = ('recipe', 'ingredient')
 
@@ -57,3 +62,7 @@ class Rating(EditTimestamped):
     content = models.CharField(max_length=500, null=True, blank=True, validators=[MinLengthValidator(10)])
     class Meta:
         unique_together = ('user', 'recipe')
+        indexes = [
+            models.Index(fields=['recipe', '-created_at']),
+            models.Index(fields=['user', '-created_at']),
+        ]

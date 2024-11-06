@@ -4,3 +4,4 @@
 database/
 media/
 test_media/
+.env
